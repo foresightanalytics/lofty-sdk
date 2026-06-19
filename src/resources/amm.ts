@@ -1,0 +1,107 @@
+import type { LoftyClient } from '../client';
+import type {
+  ListAmmPoolsResponse,
+  GetAmmPoolResponse,
+  GetQuoteParams,
+  AmmQuote,
+  ExecuteSwapParams,
+  ExecuteSwapResponse,
+} from '../types';
+
+const generateIdempotencyKey = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
+export class AmmResource {
+  constructor(private readonly client: LoftyClient) {}
+
+  /**
+   * List all active AMM pools.
+   * Pass `propertyId` to find the pool for a specific property.
+   *
+   * @example
+   * // All pools
+   * const { pools } = await lofty.amm.listPools();
+   *
+   * // Pool for a specific property
+   * const { pools } = await lofty.amm.listPools({ propertyId: 'prop_123' });
+   * const pool = pools[0]; // null if no AMM pool for this property
+   */
+  async listPools(params: { propertyId?: string } = {}): Promise<ListAmmPoolsResponse> {
+    return this.client._request<ListAmmPoolsResponse>('GET', '/public/v1/amm/pools', {
+      params: { propertyId: params.propertyId },
+    });
+  }
+
+  /**
+   * Get details for a single AMM pool by numeric pool ID.
+   */
+  async getPool(poolId: number): Promise<GetAmmPoolResponse> {
+    return this.client._request<GetAmmPoolResponse>('GET', `/public/v1/amm/pools/${poolId}`);
+  }
+
+  /**
+   * Get a price quote from the on-chain AMM contract.
+   * Pass either `tokenAmount` or `usdcAmount` — not both.
+   *
+   * @example
+   * // Cost to buy 10 tokens
+   * const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', tokenAmount: 10 });
+   *
+   * // How many tokens $500 USDC buys
+   * const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', usdcAmount: 500 });
+   *
+   * // USDC received for selling 5 tokens
+   * const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', tokenAmount: 5 });
+   */
+  async getQuote(params: GetQuoteParams): Promise<AmmQuote> {
+    return this.client._request<AmmQuote>('GET', '/public/v1/amm/quote', {
+      params: {
+        poolId: params.poolId,
+        side: params.side,
+        tokenAmount: params.tokenAmount,
+        usdcAmount: params.usdcAmount,
+      },
+    });
+  }
+
+  /**
+   * Execute an AMM swap. Buys or sells property tokens via the AMM pool.
+   * Trading must be enabled on your API key.
+   *
+   * For buys, `maxUsdcAmount` is required — it sets your slippage tolerance.
+   * Get the expected cost first with `getQuote()`, then add a small buffer.
+   *
+   * @example
+   * // Buy 10 tokens, willing to pay up to $540
+   * const quote = await lofty.amm.getQuote({ poolId: 123, side: 'buy', tokenAmount: 10 });
+   * const result = await lofty.amm.executeSwap({
+   *   poolId: 123,
+   *   side: 'buy',
+   *   tokenAmount: 10,
+   *   maxUsdcAmount: quote.usdcAmount * 1.02, // 2% slippage tolerance
+   * });
+   *
+   * @example
+   * // Sell 5 tokens
+   * const result = await lofty.amm.executeSwap({
+   *   poolId: 123,
+   *   side: 'sell',
+   *   tokenAmount: 5,
+   * });
+   */
+  async executeSwap(params: ExecuteSwapParams, idempotencyKey?: string): Promise<ExecuteSwapResponse> {
+    return this.client._request<ExecuteSwapResponse>('POST', '/public/v1/amm/swap', {
+      body: {
+        poolId: params.poolId,
+        side: params.side,
+        tokenAmount: params.tokenAmount,
+        maxUsdcAmount: params.maxUsdcAmount,
+      },
+      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+    });
+  }
+}
