@@ -3,6 +3,7 @@ import { PropertiesResource } from './resources/properties';
 import { OrdersResource } from './resources/orders';
 import { AccountResource } from './resources/account';
 import { AmmResource } from './resources/amm';
+import { LpRewardsResource } from './resources/lpRewards';
 
 export interface LoftyClientOptions {
   apiKey: string;
@@ -27,6 +28,8 @@ export class LoftyClient {
   readonly account: AccountResource;
   /** AMM pool info, price quotes, and swap execution. */
   readonly amm: AmmResource;
+  /** Discover LP-rewards programs, read farming terms, and track your payouts. */
+  readonly lpRewards: LpRewardsResource;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -37,15 +40,27 @@ export class LoftyClient {
     if (!KEY_PATTERN.test(opts.apiKey)) {
       throw new Error('apiKey must start with lofty_live_ or lofty_test_ followed by at least 32 alphanumeric characters.');
     }
+    // API keys grant full account access — never let this run in a browser where
+    // the key would be exposed to end users. Server-side only.
+    if (typeof window !== 'undefined' && typeof (globalThis as any).document !== 'undefined') {
+      throw new Error('LoftyClient cannot run in a browser — your API key would be exposed. Use it server-side and proxy if needed.');
+    }
+
+    const baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    // The key is sent as a Bearer token to baseUrl on every request; refuse plaintext.
+    if (!/^https:\/\//i.test(baseUrl) && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(baseUrl)) {
+      throw new Error('baseUrl must use https (http is allowed only for localhost).');
+    }
 
     this.apiKey = opts.apiKey;
-    this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    this.baseUrl = baseUrl;
     this.timeout = opts.timeout ?? 30_000;
 
     this.properties = new PropertiesResource(this);
     this.orders = new OrdersResource(this);
     this.account = new AccountResource(this);
     this.amm = new AmmResource(this);
+    this.lpRewards = new LpRewardsResource(this);
   }
 
   /** @internal Used by resource classes. Not part of the public API. */

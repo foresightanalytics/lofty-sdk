@@ -56,4 +56,8 @@ export type {
   LpReward,
   ListLpRewardsParams,
   ListLpRewardsResponse,
+  // LP Rewards Programs (farming)
+  LpRewardsProgram,
+  ListLpRewardsProgramsResponse,
+  GetLpRewardsProgramResponse,
 } from './types';

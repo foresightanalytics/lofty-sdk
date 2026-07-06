@@ -305,6 +305,86 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', usdcAmount: 200 
 
 ---
 
+### `lofty.lpRewards`
+
+Earn USDC by providing order-book liquidity. Some properties run a **limit-order
+liquidity-rewards program**: a fixed daily USDC pool, split across 24 hourly
+blocks and paid pro-rata to liquidity that qualifies.
+
+#### How to farm well
+
+To earn on a property, keep resting limit orders on its book that meet **all** of
+its program rules:
+
+- **Two-sided** — quote both a bid and an ask, at least `minTwoSidedLiquidity`
+  eligible shares on each side. One-sided liquidity earns nothing.
+- **Tight** — each order must sit within `allowedSpread` (USD) of the book
+  midpoint. Wide quotes are ignored.
+- **Sized** — each order needs at least `minContracts` remaining shares.
+- **Rested** — orders younger than `minOrderAgeMs` are skipped, and the book is
+  sampled at unpredictable moments each hour. Leave your quotes up; don't try to
+  time the snapshot.
+
+Your share of each hourly block scales with how tight your two-sided quotes are
+and how large your eligible size is versus the rest of the book.
+
+#### `.listPrograms()`
+
+Discover every property currently paying LP rewards, with full terms. Sort by
+`dailyRewards` to find the richest pools.
+
+```ts
+const { programs } = await lofty.lpRewards.listPrograms();
+for (const p of programs) {
+  console.log(
+    `${p.propertyId}: $${p.dailyRewards}/day ($${p.perBlockRewards.toFixed(2)}/hr) — ` +
+    `quote both sides within $${p.allowedSpread} of mid, min ${p.minContracts} shares/side`,
+  );
+}
+```
+
+Each `program` has: `propertyId`, `dailyRewards`, `perBlockRewards`,
+`blockDurationMs`, `blocksPerDay`, `allowedSpread`, `minContracts`,
+`minTwoSidedLiquidity`, `minOrderAgeMs`, `address`, `thumbnail`, `slug`, `updatedAt`.
+
+#### `.getProgram(propertyId)`
+
+Terms for a single property. Throws `LoftyError` (`404 program_not_found`) if it
+has no active program.
+
+```ts
+const { program } = await lofty.lpRewards.getProgram('prop_123');
+```
+
+#### `.getPositions()`
+
+Your current LP positions and unclaimed rewards per pool (same data as
+`account.getLpPositions()`).
+
+#### `.getHistory(params?)`
+
+Your reward payout history, newest first. Params: `since` (Unix ms), `limit`
+(max 200), `cursor`.
+
+```ts
+// A worked farming loop: pick the best program, quote both sides tight to mid
+const { programs } = await lofty.lpRewards.listPrograms();
+const best = programs.sort((a, b) => b.dailyRewards - a.dailyRewards)[0];
+
+const { recentTrades, bestBid, bestAsk } = await lofty.properties.getTrades(best.propertyId);
+const mid = (bestBid! + bestAsk!) / 2;
+const edge = Math.min(best.allowedSpread, 0.05); // sit just inside the allowed band
+
+await lofty.orders.create({ propertyId: best.propertyId, direction: 'buy',  price: +(mid - edge).toFixed(2), quantity: best.minContracts });
+await lofty.orders.create({ propertyId: best.propertyId, direction: 'sell', price: +(mid + edge).toFixed(2), quantity: best.minContracts });
+
+// ...leave them resting, then check what you earned
+const { rewards } = await lofty.lpRewards.getHistory({ since: Date.now() - 24 * 60 * 60 * 1000 });
+console.log('Earned last 24h:', rewards.reduce((s, r) => s + r.amount, 0));
+```
+
+---
+
 ## Error Handling
 
 All methods throw `LoftyError` subclasses on failure. Check `error.code` for programmatic handling.

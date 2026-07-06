@@ -347,10 +347,16 @@ export interface ExecuteSwapParams {
   /** Number of property tokens to buy or sell */
   tokenAmount: number;
   /**
-   * Maximum USDC to spend. Required for buys — sets your slippage cap.
+   * Buys only — REQUIRED. Maximum USDC to spend; slippage cap enforced on-chain.
    * Get the expected cost from `getQuote()` then add a small buffer (e.g. 1–2%).
    */
   maxUsdcAmount?: number;
+  /**
+   * Sells only — REQUIRED. Minimum USDC to receive; slippage floor enforced by
+   * the API immediately before execution. Get expected proceeds from `getQuote()`
+   * then subtract your tolerance (e.g. 1–2%). Without it the API rejects the sell.
+   */
+  minUsdcAmount?: number;
 }
 
 export interface ExecuteSwapResponse {
@@ -386,4 +392,50 @@ export interface ListLpRewardsParams {
 export interface ListLpRewardsResponse {
   rewards: LpReward[];
   nextCursor: string | null;
+}
+
+// ─── LP Rewards Programs (farming discovery) ───────────────────────────────────
+
+/**
+ * A property's active limit-order liquidity-rewards program. To earn, keep
+ * resting limit orders on the property's book that satisfy every eligibility
+ * rule below; the pool is split across hourly blocks and paid pro-rata to
+ * qualifying liquidity.
+ */
+export interface LpRewardsProgram {
+  propertyId: string;
+  /** Total USDC paid out per day across all liquidity providers. */
+  dailyRewards: number;
+  /** USDC paid per hourly block (= dailyRewards / blocksPerDay). */
+  perBlockRewards: number;
+  /** Length of a reward block in milliseconds (currently 1 hour). */
+  blockDurationMs: number;
+  /** Reward blocks per day (currently 24). */
+  blocksPerDay: number;
+  /**
+   * Max absolute USD distance from the book midpoint an order may sit and still
+   * be eligible. Tighter (closer to midpoint) orders qualify; wide quotes don't.
+   */
+  allowedSpread: number;
+  /** Minimum remaining quantity (shares) an order must have to count. */
+  minContracts: number;
+  /**
+   * Minimum eligible liquidity (shares) required on EACH side of the book for
+   * the block to pay out — you must quote BOTH bid and ask (two-sided).
+   */
+  minTwoSidedLiquidity: number;
+  /** Orders younger than this (ms) are skipped by the sampler; let quotes rest. */
+  minOrderAgeMs: number;
+  address: { line1: string | null; line2: string | null };
+  thumbnail: string | null;
+  slug: string | null;
+  updatedAt: number;
+}
+
+export interface ListLpRewardsProgramsResponse {
+  programs: LpRewardsProgram[];
+}
+
+export interface GetLpRewardsProgramResponse {
+  program: LpRewardsProgram;
 }
