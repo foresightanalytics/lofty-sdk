@@ -86,20 +86,29 @@ export class AmmResource {
    * });
    *
    * @example
-   * // Sell 5 tokens
+   * // Sell 5 tokens, requiring at least $255 back (minUsdcAmount is REQUIRED for sells)
+   * const quote = await lofty.amm.getQuote({ poolId: 123, side: 'sell', tokenAmount: 5 });
    * const result = await lofty.amm.executeSwap({
    *   poolId: 123,
    *   side: 'sell',
    *   tokenAmount: 5,
+   *   minUsdcAmount: quote.usdcAmount * 0.98, // 2% slippage tolerance
    * });
    */
   async executeSwap(params: ExecuteSwapParams, idempotencyKey?: string): Promise<ExecuteSwapResponse> {
+    if (params.side === 'buy' && !(params.maxUsdcAmount! > 0)) {
+      throw new Error('maxUsdcAmount is required for buys (slippage cap). Get it from getQuote() and add a buffer.');
+    }
+    if (params.side === 'sell' && !(params.minUsdcAmount! > 0)) {
+      throw new Error('minUsdcAmount is required for sells (slippage floor). Get it from getQuote() and subtract a buffer.');
+    }
     return this.client._request<ExecuteSwapResponse>('POST', '/public/v1/amm/swap', {
       body: {
         poolId: params.poolId,
         side: params.side,
         tokenAmount: params.tokenAmount,
         maxUsdcAmount: params.maxUsdcAmount,
+        minUsdcAmount: params.minUsdcAmount,
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
