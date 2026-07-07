@@ -1,4 +1,5 @@
 import type { LoftyClient } from '../client';
+import { LoftyError } from '../errors';
 import type {
   ListLpRewardsProgramsResponse,
   GetLpRewardsProgramResponse,
@@ -44,18 +45,24 @@ export class LpRewardsResource {
    * Use this to decide where to provide liquidity.
    */
   async listPrograms(): Promise<ListLpRewardsProgramsResponse> {
-    return this.client._request<ListLpRewardsProgramsResponse>('GET', '/public/v1/lp-rewards/programs');
+    return this.client._request<ListLpRewardsProgramsResponse>('GET', '/public/v1/account/lp-programs');
   }
 
   /**
-   * Get the LP-rewards program terms for a single property. Throws
-   * `LoftyError` (404, `program_not_found`) if the property has no active program.
+   * Get the LP-rewards program terms for a single property. Filters the full
+   * program list client-side. Throws `LoftyError` (404, `program_not_found`) if
+   * the property has no active program.
    */
   async getProgram(propertyId: string): Promise<GetLpRewardsProgramResponse> {
-    return this.client._request<GetLpRewardsProgramResponse>(
-      'GET',
-      `/public/v1/lp-rewards/programs/${encodeURIComponent(propertyId)}`,
-    );
+    const { programs } = await this.listPrograms();
+    const program = programs.find((p) => p.propertyId === propertyId);
+    if (!program) {
+      throw new LoftyError(404, {
+        code: 'program_not_found',
+        message: `No active LP rewards program for property ${propertyId}.`,
+      });
+    }
+    return { program };
   }
 
   /**
