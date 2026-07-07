@@ -1,4 +1,4 @@
-# @lofty/sdk
+# @loftyaicode/sdk
 
 Official TypeScript SDK for the [Lofty](https://lofty.ai) trading API.
 
@@ -17,7 +17,7 @@ Monitor LP rewards, view order books, place/cancel limit orders, and get AMM pri
 ## Installation
 
 ```bash
-npm install @lofty/sdk
+npm install @loftyaicode/sdk
 ```
 
 ---
@@ -37,7 +37,7 @@ To enable order placement and cancellation, turn on **Trading** for the key. Rea
 ## Quick Start
 
 ```typescript
-import { LoftyClient } from '@lofty/sdk';
+import { LoftyClient } from '@loftyaicode/sdk';
 
 const lofty = new LoftyClient({ apiKey: 'lofty_live_...' });
 
@@ -390,7 +390,7 @@ console.log('Earned last 24h:', rewards.reduce((s, r) => s + r.amount, 0));
 All methods throw `LoftyError` subclasses on failure. Check `error.code` for programmatic handling.
 
 ```typescript
-import { LoftyError, LoftyRateLimitError, LoftyAuthError } from '@lofty/sdk';
+import { LoftyError, LoftyRateLimitError, LoftyAuthError } from '@loftyaicode/sdk';
 
 try {
   await lofty.orders.create({ ... });

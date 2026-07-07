@@ -1,5 +1,5 @@
 {
-  "name": "@lofty/sdk",
+  "name": "@loftyaicode/sdk",
   "version": "0.2.0",
   "description": "Official TypeScript SDK for the Lofty trading API",
   "homepage": "https://lofty.ai",
