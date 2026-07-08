@@ -418,15 +418,25 @@ try {
 
 ### Rate limits
 
+Per API key, fixed one-minute window:
+
 | Operation | Default limit |
 |-----------|--------------|
-| Read (GET) | 600 requests/minute |
-| Write (POST/DELETE) | 60 requests/minute |
+| Read (GET) | 300 / minute |
+| Write (POST / DELETE) | 30 / minute |
+
+Writes are **additionally** capped at **60 / minute per account** across all of your
+keys, so extra keys can't multiply your write throughput. Need more? Contact
+support to raise your key's override.
 
 Rate limit headers are returned on every response:
 - `X-RateLimit-Limit` — your limit for this window
 - `X-RateLimit-Remaining` — requests remaining
 - `X-RateLimit-Reset` — Unix timestamp when the window resets
+
+On `429`, the SDK automatically retries honoring `Retry-After` (writes retry on
+`429` only — never on `5xx`, since a write's outcome after a server error is
+unknown).
 
 ---
 
