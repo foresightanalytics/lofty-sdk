@@ -1,4 +1,5 @@
 import type { LoftyClient } from '../client';
+import { requirePathParam } from '../errors';
 import type {
   ListPropertiesParams,
   ListPropertiesResponse,
@@ -35,6 +36,7 @@ export class PropertiesResource {
    * @param propertyId - The Lofty property ID
    */
   async get(propertyId: string): Promise<GetPropertyResponse> {
+    requirePathParam(propertyId, 'propertyId');
     return this.client._request<GetPropertyResponse>('GET', `/public/v1/properties/${encodeURIComponent(propertyId)}`);
   }
 
@@ -50,6 +52,7 @@ export class PropertiesResource {
    * console.log('Best ask:', orderbook.asks[0]?.price);
    */
   async getOrderBook(propertyId: string): Promise<GetOrderBookResponse> {
+    requirePathParam(propertyId, 'propertyId');
     return this.client._request<GetOrderBookResponse>('GET', `/public/v1/properties/${encodeURIComponent(propertyId)}/orderbook`);
   }
 
@@ -59,6 +62,7 @@ export class PropertiesResource {
    * @param propertyId - The Lofty property ID
    */
   async getTrades(propertyId: string): Promise<GetTradesResponse> {
+    requirePathParam(propertyId, 'propertyId');
     return this.client._request<GetTradesResponse>('GET', `/public/v1/properties/${encodeURIComponent(propertyId)}/trades`);
   }
 }

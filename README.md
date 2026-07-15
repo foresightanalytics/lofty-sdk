@@ -89,6 +89,9 @@ const { result, page, pageSize } = await lofty.properties.list({
   pageSize: 50,
   propertyType: 'RESIDENTIAL',
 });
+// result.properties — trimmed public property objects (id, address, tokens,
+//                     pricing, financials, market data)
+// result.meta       — pagination info ({ count, next, ... })
 ```
 
 | Param | Type | Default |

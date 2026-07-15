@@ -1,4 +1,5 @@
 import type { LoftyClient } from '../client';
+import { requirePathParam } from '../errors';
 import type {
   CreateOrderParams,
   CreateOrderResponse,
@@ -54,6 +55,7 @@ export class OrdersResource {
    * console.log(order.status); // 'active' | 'executed' | 'cancelled' | ...
    */
   async get(orderId: string): Promise<GetOrderResponse> {
+    requirePathParam(orderId, 'orderId');
     return this.client._request<GetOrderResponse>('GET', `/public/v1/orders/${encodeURIComponent(orderId)}`);
   }
 
@@ -65,6 +67,7 @@ export class OrdersResource {
    * await lofty.orders.cancel({ orderId: '01J...' });
    */
   async cancel(params: CancelOrderParams, idempotencyKey?: string): Promise<CancelOrderResponse> {
+    requirePathParam(params?.orderId, 'orderId');
     return this.client._request<CancelOrderResponse>(
       'DELETE',
       `/public/v1/orders/${encodeURIComponent(params.orderId)}`,
