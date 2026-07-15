@@ -14,11 +14,23 @@ export interface ListPropertiesParams {
   minPan?: number;
 }
 
+export interface ListPropertiesMeta {
+  page: number;
+  pageSize: number;
+  count: number;
+  /** Next page number, present when more results exist. */
+  next?: number;
+  [key: string]: unknown;
+}
+
 export interface ListPropertiesResponse {
   page: number;
   pageSize: number;
   filters: Record<string, unknown>;
-  result: PropertySummary[];
+  result: {
+    properties: PropertySummary[];
+    meta: ListPropertiesMeta | null;
+  };
 }
 
 export interface PropertySummary {
@@ -32,10 +44,10 @@ export interface GetPropertyResponse {
 
 // ─── Order Book ───────────────────────────────────────────────────────────────
 
+/** One aggregated price level. Quantity is the total shares resting at that price. */
 export interface OrderBookLevel {
-  price: number;
-  quantity: number;
-  orderCount: number;
+  price: number | null;
+  quantity: number | null;
 }
 
 export interface OrderBook {

@@ -44,6 +44,21 @@ export class LoftyError extends Error {
 }
 
 /**
+ * Client-side guard for required path parameters. An empty id would otherwise
+ * produce a path like `/public/v1/properties/`, which API Gateway routes to the
+ * LIST endpoint (trailing slashes are ignored) instead of returning a 404.
+ */
+export function requirePathParam(value: string | number | null | undefined, name: string): void {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    throw new LoftyError(400, {
+      code: 'missing_field',
+      message: `${name} is required.`,
+      field: name,
+    });
+  }
+}
+
+/**
  * Thrown when the API key is missing, revoked, or invalid.
  */
 export class LoftyAuthError extends LoftyError {

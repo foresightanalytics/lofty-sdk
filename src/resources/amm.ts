@@ -1,4 +1,5 @@
 import type { LoftyClient } from '../client';
+import { requirePathParam } from '../errors';
 import type {
   ListAmmPoolsResponse,
   GetAmmPoolResponse,
@@ -40,6 +41,7 @@ export class AmmResource {
    * Get details for a single AMM pool by numeric pool ID.
    */
   async getPool(poolId: number): Promise<GetAmmPoolResponse> {
+    requirePathParam(poolId, 'poolId');
     return this.client._request<GetAmmPoolResponse>('GET', `/public/v1/amm/pools/${poolId}`);
   }
 
