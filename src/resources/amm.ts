@@ -76,6 +76,8 @@ export class AmmResource {
    *
    * For buys, `maxUsdcAmount` is required — it sets your slippage tolerance.
    * Get the expected cost first with `getQuote()`, then add a small buffer.
+   * The cap covers the pool payment (`quote.usdcAmount`); swap fees are charged
+   * on top, so ensure your wallet balance covers `quote.totalDebit`.
    *
    * @example
    * // Buy 10 tokens, willing to pay up to $540

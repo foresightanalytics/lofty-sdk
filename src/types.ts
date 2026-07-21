@@ -69,7 +69,9 @@ export interface Trade {
 export interface GetTradesResponse {
   propertyId: string;
   recentTrades: Trade[];
+  /** Highest price a holder can sell at right now (best limit bid or the AMM pool's sell price). */
   bestBid: number | null;
+  /** Lowest price a buyer pays right now (best limit ask or the AMM pool's buy price). */
   bestAsk: number | null;
   limitTokensAvailable: number;
   marketTokensAvailable: number;
@@ -333,10 +335,27 @@ export interface AmmQuote {
   /** Property tokens involved */
   tokenAmount: number;
   /**
-   * For buy: USDC you will pay.
-   * For sell: USDC you will receive.
+   * The raw AMM pool payment for the swap. This is NOT the full wallet
+   * movement: swap fees are charged separately on top (buys) or out of the
+   * proceeds (sells). Use `totalDebit` (buys) / `netProceeds` (sells) for the
+   * amount that actually hits your wallet.
    */
   usdcAmount: number;
+  /**
+   * Swap fee breakdown charged in addition to `usdcAmount` (platform + LP +
+   * operating reserve), computed identically to on-chain execution.
+   * Present on API deployments from 2026-07-21 onward.
+   */
+  fees?: {
+    platform: number;
+    lp: number;
+    operatingReserve: number;
+    total: number;
+  };
+  /** Buys only: total USDC your wallet is debited (`usdcAmount + fees.total`). */
+  totalDebit?: number;
+  /** Sells only: net USDC you receive (`usdcAmount - fees.total`). */
+  netProceeds?: number;
   /** Effective price per token in USDC */
   usdcPerToken: number;
   /**
@@ -361,12 +380,18 @@ export interface ExecuteSwapParams {
   /**
    * Buys only — REQUIRED. Maximum USDC to spend; slippage cap enforced on-chain.
    * Get the expected cost from `getQuote()` then add a small buffer (e.g. 1–2%).
+   * NOTE: the cap applies to the POOL PAYMENT (`quote.usdcAmount`), not
+   * `quote.totalDebit` — swap fees are charged on top of it, so your wallet
+   * must cover `totalDebit`, not just this cap.
    */
   maxUsdcAmount?: number;
   /**
-   * Sells only — REQUIRED. Minimum USDC to receive; slippage floor enforced by
-   * the API immediately before execution. Get expected proceeds from `getQuote()`
+   * Sells only — REQUIRED. Minimum USDC floor; slippage floor enforced by
+   * the API immediately before execution. Get the quote from `getQuote()`
    * then subtract your tolerance (e.g. 1–2%). Without it the API rejects the sell.
+   * NOTE: the floor applies to the POOL PAYMENT (`quote.usdcAmount`), not your
+   * net proceeds — swap fees are deducted after, so you receive
+   * `quote.netProceeds`, not the pool payment.
    */
   minUsdcAmount?: number;
 }
