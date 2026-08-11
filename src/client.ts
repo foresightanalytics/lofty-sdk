@@ -4,6 +4,7 @@ import { OrdersResource } from './resources/orders';
 import { AccountResource } from './resources/account';
 import { AmmResource } from './resources/amm';
 import { LpRewardsResource } from './resources/lpRewards';
+import { PropertyManagersResource } from './resources/propertyManagers';
 
 export interface LoftyClientOptions {
   apiKey: string;
@@ -30,6 +31,8 @@ export class LoftyClient {
   readonly amm: AmmResource;
   /** Discover LP-rewards programs, read farming terms, and track your payouts. */
   readonly lpRewards: LpRewardsResource;
+  /** Discover property managers, read public profiles, and list their public properties. */
+  readonly propertyManagers: PropertyManagersResource;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -61,6 +64,8 @@ export class LoftyClient {
     this.account = new AccountResource(this);
     this.amm = new AmmResource(this);
     this.lpRewards = new LpRewardsResource(this);
+    // Constructed after `properties` because it delegates to it.
+    this.propertyManagers = new PropertyManagersResource(this, this.properties);
   }
 
   /** @internal Used by resource classes. Not part of the public API. */
@@ -73,7 +78,12 @@ export class LoftyClient {
       idempotencyKey?: string;
     } = {},
   ): Promise<T> {
-    const url = new URL(this.baseUrl + path);
+    let url: URL;
+    try {
+      url = new URL(this.baseUrl + path);
+    } catch {
+      throw new Error(`Invalid baseUrl/path combination: ${this.baseUrl}${path}`);
+    }
 
     if (opts.params) {
       for (const [k, v] of Object.entries(opts.params)) {

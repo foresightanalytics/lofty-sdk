@@ -8,7 +8,7 @@ Monitor LP rewards, view order books, place/cancel limit orders, and get AMM pri
 
 ## Requirements
 
-- Node.js 18+ (or any modern browser)
+- Node.js 18+ **(server-side only)** — `LoftyClient` intentionally throws in browser contexts because your API key would be exposed to end users. Use it from a server and proxy to clients if needed.
 - A Lofty account that has completed KYC
 - An API key generated from your Lofty dashboard
 
@@ -84,14 +84,18 @@ await lofty.orders.cancel({ orderId, propertyId: 'prop_123' });
 List all properties on the Lofty marketplace.
 
 ```typescript
-const { result, page, pageSize } = await lofty.properties.list({
+const { result, page, pageSize, propertyManagers } = await lofty.properties.list({
   page: 1,
   pageSize: 50,
   propertyType: 'RESIDENTIAL',
 });
 // result.properties — trimmed public property objects (id, address, tokens,
-//                     pricing, financials, market data)
+//                     pricing, financials, market data). Properties statically
+//                     assigned to a property manager carry a derived `managerId`.
 // result.meta       — pagination info ({ count, next, ... })
+// propertyManagers  — compact catalog of every registered property manager
+//                     ({ id, slug, name }); the authoritative discovery source
+//                     for manager IDs.
 ```
 
 | Param | Type | Default |
@@ -102,6 +106,7 @@ const { result, page, pageSize } = await lofty.properties.list({
 | `propertyType` | `'RESIDENTIAL' \| 'COMMERCIAL' \| 'ALL'` | `'ALL'` |
 | `minPry` | `number` | `0` |
 | `minPan` | `number` | `0` |
+| `managerId` | `string` | — (exact, case-sensitive registry manager ID; unknown IDs → HTTP 400) |
 
 #### `.get(propertyId)`
 
@@ -128,6 +133,109 @@ Get recent trades and market summary.
 ```typescript
 const { recentTrades, bestBid, bestAsk } = await lofty.properties.getTrades('prop_123');
 ```
+
+---
+
+### `lofty.propertyManagers`
+
+Discover property managers, read their public profiles, and list the properties currently attributed to them on the public marketplace.
+
+**How attribution works:** manager assignments come from a manually maintained **static registry**, intentionally — the API follows the deployed registry, not live operational data, so attribution can be intentionally stale. A manager's "current properties" are their registry assignments **intersected with inventory currently eligible for the public marketplace** (the same eligibility pipeline as `lofty.properties.list()`).
+
+**Discovering manager IDs:** every `lofty.properties.list()` response includes a `propertyManagers` catalog (`{ id, slug, name }[]`) rebuilt from the deployed registry on every response — it is the **authoritative, always-current** discovery source. The snapshot table further below is a convenience copy; the runtime catalog wins on any disagreement. Unknown or newly added IDs passed to `managerId` are rejected server-side with HTTP 400, so a stale snapshot never produces silently wrong results.
+
+Manager IDs and slugs are **exact and case-sensitive**. Display names are never identifiers.
+
+#### `.get(managerId)`
+
+Get a manager's public profile plus the **complete** set of their registry-assigned properties currently eligible for the public marketplace — one bounded call, never paginated or truncated.
+
+```typescript
+const { manager, stats, properties } = await lofty.propertyManagers.get('partner-eco-systems');
+console.log(`${manager.name} (${manager.location}) — verified: ${manager.verified}`);
+console.log(`${stats.propertiesManaged} public properties`); // always === properties.length
+```
+
+`manager` profile fields: `id`, `slug`, `name`, `role` (`'Property Manager'`), `verified`, `location`, `photoUrl`, `description`, plus optional `socialLinks` (`instagram`/`linkedin`/`github`/`website`) and `references` (`{ label, url }[]`).
+
+#### `.getBySlug(slug)`
+
+Same response as `.get()`, looked up by the profile slug instead of the manager ID.
+
+```typescript
+const { manager } = await lofty.propertyManagers.getBySlug('eco-systems-llc');
+```
+
+#### `.listProperties(managerId, params?)`
+
+List one manager's currently public properties with ordinary paginated list semantics. Accepts the same filters as `lofty.properties.list()` (except `managerId`, which is the required positional argument and always wins).
+
+```typescript
+const { result } = await lofty.propertyManagers.listProperties('partner-eco-systems', {
+  page: 1,
+  pageSize: 50,
+  location: 'Albany, NY',
+  minPry: 5,
+});
+```
+
+Use `.get()` when you want the profile and the exact complete portfolio; use `.listProperties()` when you want compact filtered pages.
+
+#### Property manager IDs
+
+Snapshot of the static registry, **as of SDK v0.2.5 / marketplace registry v2.2.18**, sorted by name. The runtime `propertyManagers` catalog in every `lofty.properties.list()` response is the authoritative, always-current source and wins on any disagreement with this table. Unknown or newly added IDs are rejected server-side with HTTP 400.
+
+| Manager | `managerId` | `slug` |
+|---|---|---|
+| 1048 Hilton Rd LLC | `partner-1048-hilton` | `1048-hilton-rd-llc` |
+| Alfonso Aduna | `partner-alfonso-aduna` | `alfonso-aduna` |
+| Arrio Granum | `partner-arrio-granum` | `arrio-granum` |
+| Chris Mygatt | `partner-chris-mygatt` | `chris-mygatt` |
+| Clay Westerlund | `partner-clay-westerlund` | `clay-westerlund` |
+| Cole Rubin | `partner-cole-rubin` | `cole-rubin` |
+| DAOvest LLC | `partner-chris-rugh` | `chris-rugh` |
+| ECO Systems LLC | `partner-eco-systems` | `eco-systems-llc` |
+| Elisabeth Nelson | `partner-elisabeth-nelson` | `elisabeth-nelson` |
+| EquityTeam | `partner-equity-team` | `equity-team` |
+| Eric LeMunyan | `partner-eric-lemunyan` | `eric-lemunyan` |
+| Gary Tsang | `partner-gary-tsang` | `gary-tsang` |
+| Georgy Marrero | `partner-georgy-marrero` | `georgy-marrero` |
+| Hyde Flats LLC | `partner-hyde-flats` | `hyde-flats-llc` |
+| InvestmentKD | `partner-investmentkd` | `investmentkd` |
+| Jordan Bentley | `partner-jordan-bentley` | `jordan-bentley` |
+| Joshua Duehring | `partner-joshua-duehring` | `joshua-duehring` |
+| M1 Homes LLC | `partner-m1-homes` | `m1-homes-llc` |
+| Mackaylee Beach | `partner-mackaylee-beach` | `mackaylee-beach` |
+| Mark Reed | `partner-mark-reed` | `mark-reed` |
+| Matthew Teifke | `partner-matthew-teifke` | `matthew-teifke` |
+| Michael Alarcon II | `partner-alarcon` | `kristin-michael-alarcon` |
+| PMI of New Mexico | `partner-pmi-new-mexico` | `pmi-of-new-mexico` |
+| Ryan Goldfarb | `partner-goldfarb-errico` | `ryan-goldfarb-john-errico` |
+| S&P Property Management, LLC | `partner-sp-property` | `sp-property-management` |
+| Sameer Mohan | `partner-sameer-mohan` | `sameer-mohan` |
+| Shubham Sethi | `partner-shubham-sethi` | `shubham-sethi` |
+| Simple Vacation Rentals | `partner-simple-vacation-rentals` | `simple-vacation-rentals` |
+| Taylor Hou | `partner-taylor-hou` | `taylor-hou` |
+| Tony Thompson | `partner-tony-thompson` | `tony-thompson` |
+| Travli Hospitality | `partner-travli-hospitality` | `travli-hospitality` |
+| Tristan Huerta | `partner-tristan-huerta` | `tristan-huerta` |
+| Whalec Property Management | `partner-whalec` | `whalec-property-management` |
+| William Pulkinen | `partner-william-pulkinen` | `william-pulkinen` |
+
+#### Registry maintenance (internal runbook)
+
+The registry is a single hand-edited canonical source in the `frontend-microservices` repo (`services/marketplace-website/app/src/data/property-manager-registry.ts`). To change it:
+
+1. Edit **only** the canonical file — never duplicate a registry.
+2. Increment the marketplace workspace patch version (its deployment process requires it).
+3. Never rename, recycle, or silently remove published IDs. Slug changes need a compatibility decision (they affect `getBySlug()` consumers).
+4. Move property IDs between managers rather than duplicating them; a property ID may appear under at most one manager.
+5. Stay within the 200-assignments-per-manager bound; exceeding it requires adding manager-property pagination first.
+6. Run the registry integrity tests.
+7. Deploy **both** the marketplace and `nft-public-api` — force the `nft-public-api` deployment on registry-only commits, because Turborepo changed-package detection does not model the cross-workspace source import. Clear (or wait out the 150-second TTL of) the manager-specific caches before post-deployment verification.
+8. Refresh the "Property manager IDs" snapshot table above on the next SDK release after any registry change. A docs-only README refresh does **not** require an SDK version bump or republish — the runtime catalog is authoritative, so a lagging table is an accepted convenience cost.
+
+**Release ordering:** the backend (`nft-public-api`) must be deployed and smoke-tested **before** publishing an SDK version that uses these features — an old backend ignores the new query controls and would return unrelated unfiltered properties.
 
 ---
 
@@ -433,6 +541,7 @@ keys, so extra keys can't multiply your write throughput. Need more? Contact
 support to raise your key's override.
 
 Rate limit headers are returned on every response:
+
 - `X-RateLimit-Limit` — your limit for this window
 - `X-RateLimit-Remaining` — requests remaining
 - `X-RateLimit-Reset` — Unix timestamp when the window resets
