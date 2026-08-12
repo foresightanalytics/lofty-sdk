@@ -181,6 +181,99 @@ const { result } = await lofty.propertyManagers.listProperties('partner-eco-syst
 
 Use `.get()` when you want the profile and the exact complete portfolio; use `.listProperties()` when you want compact filtered pages.
 
+#### Request and response examples
+
+What to expect:
+
+- All methods call the existing `GET /public/v1/properties` route over HTTPS. The request body is empty. Parameters travel in the query string.
+- All responses are JSON.
+- You pass one exact, case-sensitive manager ID or slug. You never pass `view=manager` yourself; the SDK adds it for `.get()` and `.getBySlug()`.
+- The SDK throws a `LoftyError` for every non-2xx response. Check `err.statusCode` and `err.code` to react programmatically.
+
+Success example — `lofty.propertyManagers.get('partner-eco-systems')` sends `GET /public/v1/properties?view=manager&managerId=partner-eco-systems` and returns:
+
+```json
+{
+  "manager": {
+    "id": "partner-eco-systems",
+    "slug": "eco-systems-llc",
+    "name": "ECO Systems LLC",
+    "role": "Property Manager",
+    "verified": true,
+    "location": "Albany, NY",
+    "photoUrl": "https://www.lofty.ai/static/img/partners/eco-systems.jpg",
+    "description": "ECO Systems LLC is a property management company...",
+    "socialLinks": {
+      "website": "https://example.com"
+    },
+    "references": [
+      {
+        "label": "Public reference",
+        "url": "https://example.com/reference"
+      }
+    ]
+  },
+  "stats": {
+    "propertiesManaged": 37
+  },
+  "properties": [
+    {
+      "id": "01G0T3MEVDY5D3T5J319CZ343N",
+      "managerId": "partner-eco-systems"
+    }
+  ]
+}
+```
+
+Notes on the success shape:
+
+- `properties` contains the complete current public intersection. It is never paginated or truncated.
+- `stats.propertiesManaged` always equals `properties.length`.
+- A known manager with no currently public properties returns HTTP 200 with the profile, `propertiesManaged: 0`, and `properties: []`. This is not an error.
+
+Failure example — an unknown ID, `lofty.propertyManagers.get('partner-does-not-exist')`, returns HTTP 400 with this JSON body:
+
+```json
+{
+  "error": {
+    "code": "invalid_manager_id",
+    "message": "Unknown property manager id: partner-does-not-exist",
+    "field": "managerId"
+  }
+}
+```
+
+The SDK throws it as a `LoftyError`:
+
+```typescript
+import { LoftyError } from '@loftyaicode/sdk';
+
+try {
+  await lofty.propertyManagers.get('partner-does-not-exist');
+} catch (err) {
+  if (err instanceof LoftyError) {
+    console.error(err.statusCode); // 400
+    console.error(err.code);       // 'invalid_manager_id'
+    console.error(err.field);      // 'managerId'
+    console.error(err.message);    // human-readable explanation
+  }
+}
+```
+
+Error codes you can see on this surface:
+
+| `code` | `statusCode` | Cause |
+|---|---|---|
+| `missing_field` | 400 | Blank ID or slug. The SDK throws this client-side; it sends no request. |
+| `invalid_manager_id` | 400 | Blank, repeated, malformed, case-variant, slug-valued, or unknown `managerId`; also `managerId` and `managerSlug` together. |
+| `invalid_manager_slug` | 400 | Blank, repeated, malformed, case-variant, or unknown `managerSlug`. |
+| `missing_manager_identifier` | 400 | Manager view with no identifier. |
+| `unsupported_parameter` | 400 | Extra parameters with `view=manager` (pagination, filters, or unknown keys). The SDK never sends these. |
+| `manager_source_error` | 500 | The property source failed. Retry later. Do not treat it as an empty portfolio. |
+| `manager_results_truncated` | 500 | Internal bound exceeded. Report it; it must not occur in normal operation. |
+| `unauthorized` | 401 | Missing, revoked, or invalid API key. |
+| `rate_limited` | 429 | Rate limit exceeded. Retry after `retryAfter` seconds. |
+
 #### Property manager IDs
 
 Snapshot of the static registry, **as of SDK v0.2.5 / marketplace registry v2.2.18**, sorted by name. The runtime `propertyManagers` catalog in every `lofty.properties.list()` response is the authoritative, always-current source and wins on any disagreement with this table. Unknown or newly added IDs are rejected server-side with HTTP 400.
