@@ -26,6 +26,7 @@ export class PropertiesResource {
         propertyType: params.propertyType,
         minPry: params.minPry,
         minPan: params.minPan,
+        managerId: params.managerId,
       },
     });
   }

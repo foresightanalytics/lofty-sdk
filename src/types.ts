@@ -12,6 +12,13 @@ export interface ListPropertiesParams {
   minPry?: number;
   /** Minimum projected annual appreciation (%) */
   minPan?: number;
+  /**
+   * Restrict results to properties statically assigned to one property manager.
+   * Must be an exact, case-sensitive registry manager ID (e.g. 'partner-eco-systems') —
+   * see the `propertyManagers` catalog on every list response or the SDK README's
+   * "Property manager IDs" snapshot table. Unknown IDs are rejected with HTTP 400.
+   */
+  managerId?: string;
 }
 
 export interface ListPropertiesMeta {
@@ -27,6 +34,12 @@ export interface ListPropertiesResponse {
   page: number;
   pageSize: number;
   filters: Record<string, unknown>;
+  /**
+   * Compact catalog of every property manager in the static registry.
+   * This runtime catalog is the authoritative, always-current discovery source
+   * for manager IDs — it wins over any documentation snapshot on disagreement.
+   */
+  propertyManagers: PropertyManagerSummary[];
   result: {
     properties: PropertySummary[];
     meta: ListPropertiesMeta | null;
@@ -35,12 +48,92 @@ export interface ListPropertiesResponse {
 
 export interface PropertySummary {
   id: string;
+  /**
+   * Registry-derived manager attribution, present only when the property is
+   * statically assigned to a property manager in the registry. This is a
+   * trusted server-side annotation, not the legacy internal `managerId` field.
+   */
+  managerId?: string;
   [key: string]: unknown;
 }
 
 export interface GetPropertyResponse {
   property: PropertySummary;
 }
+
+// ─── Property Managers ────────────────────────────────────────────────────────
+
+/**
+ * Compact property-manager catalog entry returned on every property list
+ * response. Use `id` as the exact, case-sensitive `managerId` filter key.
+ */
+export interface PropertyManagerSummary {
+  /** Immutable, exact, case-sensitive registry ID (the `managerId` filter key). */
+  id: string;
+  /** Unique, exact, case-sensitive profile lookup slug. */
+  slug: string;
+  name: string;
+}
+
+/** Public social links on a manager profile. Only these keys are ever returned. */
+export interface PropertyManagerSocialLinks {
+  instagram?: string;
+  linkedin?: string;
+  github?: string;
+  website?: string;
+}
+
+/** A public reference link on a manager profile. */
+export interface PropertyManagerReference {
+  label: string;
+  url: string;
+}
+
+/**
+ * A property manager's public profile.
+ *
+ * Manager attribution is backed by a manually maintained static registry:
+ * it intentionally follows the deployed registry, not live operational
+ * assignments. `properties` returned alongside a profile are the manager's
+ * registry assignments intersected with properties currently eligible for
+ * the public marketplace (the same eligibility as `properties.list()`).
+ */
+export interface PropertyManagerProfile {
+  /** Immutable, exact, case-sensitive registry ID. */
+  id: string;
+  slug: string;
+  name: string;
+  role: 'Property Manager';
+  verified: boolean;
+  location: string;
+  photoUrl: string;
+  description: string;
+  socialLinks?: PropertyManagerSocialLinks;
+  references?: PropertyManagerReference[];
+}
+
+export interface PropertyManagerStats {
+  /**
+   * Exact count of the manager's registry-assigned properties that are
+   * currently eligible for the public marketplace. Always equals the length
+   * of the `properties` array in the same response.
+   */
+  propertiesManaged: number;
+}
+
+/**
+ * Response of `lofty.propertyManagers.get()` / `.getBySlug()`.
+ * `properties` is the complete bounded public intersection (never paginated
+ * or truncated), ordered through the public marketplace pipeline.
+ */
+export interface GetPropertyManagerResponse {
+  manager: PropertyManagerProfile;
+  stats: PropertyManagerStats;
+  properties: PropertySummary[];
+}
+
+/** `listProperties()` params: normal list filters minus `managerId` (which is a required positional argument). */
+export type ListPropertyManagerPropertiesParams = Omit<ListPropertiesParams, 'managerId'>;
 
 // ─── Order Book ───────────────────────────────────────────────────────────────
 
