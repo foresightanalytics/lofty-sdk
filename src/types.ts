@@ -223,17 +223,76 @@ export interface ListOrdersParams {
   status?: OrderStatus;
 }
 
+/**
+ * Stable, normalized lifecycle for an order. Safe to branch on — unlike the raw
+ * `status`, these values do not change over time. Returned on every order.
+ */
+export type OrderState =
+  | 'open'
+  | 'partially_filled'
+  | 'filled'
+  | 'cancelled'
+  | 'pending';
+
+/** Why a terminal order ended. Present only on terminal orders. */
+export type OrderStatusReason =
+  | 'filled'
+  | 'user_cancel'
+  | 'insufficient_funds'
+  | 'expired'
+  | 'partial_fill_cancelled';
+
 export interface Order {
   orderId: string;
   propertyId: string;
   direction: OrderDirection;
   /** Price per token in USD */
   price: number;
+  /** REMAINING (unfilled) token count. Same value as `remainingQuantity`. */
   quantity: number;
   status: OrderStatus;
   paymentCurrency: string;
   createdAt: number;
   expireAt: number;
+
+  // ─── Tracking fields (added, backward-compatible) ───
+  /** Normalized lifecycle. Present on every order; safe to branch on. */
+  state?: OrderState;
+  /** Total tokens the order was placed for. Single-order endpoint only. */
+  originalQuantity?: number;
+  /** Tokens filled so far. Single-order endpoint only. */
+  filledQuantity?: number;
+  /** Tokens still unfilled (== `quantity`). Single-order endpoint only. */
+  remainingQuantity?: number;
+  /** Volume-weighted average fill price in USD, or null before any fill. Single-order endpoint only. */
+  averageFillPrice?: number | null;
+  /** Why a terminal order ended. Single-order endpoint only. */
+  statusReason?: OrderStatusReason;
+  /** Unix ms of the most recent order event. Single-order endpoint only. */
+  lastUpdatedAt?: number;
+}
+
+/** Normalized lifecycle for a pool-executed swap. */
+export type SwapState = 'pending' | 'settled' | 'failed';
+
+export interface SwapStatus {
+  batchId: string;
+  /** Normalized lifecycle. Safe to branch on. */
+  state: SwapState;
+  /** Raw internal status. */
+  status: string;
+  side?: OrderDirection;
+  propertyId?: string;
+  poolId?: number;
+  /** Algorand round when the swap settled; null until `state: 'settled'`. */
+  confirmedBlock?: number | null;
+  /** Present only when `state: 'failed'`. */
+  failureReason?: string;
+  createdAt?: number;
+}
+
+export interface GetSwapStatusResponse {
+  swap: SwapStatus;
 }
 
 export interface ListOrdersResponse {
