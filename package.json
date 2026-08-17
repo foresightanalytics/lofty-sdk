@@ -1,6 +1,6 @@
 {
   "name": "@loftyaicode/sdk",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Official TypeScript SDK for the Lofty trading API",
   "homepage": "https://lofty.ai",
   "main": "./dist/index.js",
