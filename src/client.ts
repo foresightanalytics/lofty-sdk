@@ -5,6 +5,7 @@ import { AccountResource } from './resources/account';
 import { AmmResource } from './resources/amm';
 import { LpRewardsResource } from './resources/lpRewards';
 import { PropertyManagersResource } from './resources/propertyManagers';
+import type { GetOrderResponse, GetSwapStatusResponse } from './types';
 
 export interface LoftyClientOptions {
   apiKey: string;
@@ -66,6 +67,37 @@ export class LoftyClient {
     this.lpRewards = new LpRewardsResource(this);
     // Constructed after `properties` because it delegates to it.
     this.propertyManagers = new PropertyManagersResource(this, this.properties);
+  }
+
+  /**
+   * Track anything you submitted, by the id you got back — regardless of how you
+   * submitted it. Accepts a book `orderId` (from `orders.create`, or from a
+   * book-routed `executeSwap`) OR a swap `batchId` (from a pool-executed
+   * `executeSwap`), and calls the right status endpoint.
+   *
+   * Returns `{ kind: 'order', order }` or `{ kind: 'swap', swap }` so you can
+   * branch on `kind` without knowing the id type up front. A batch id carries a
+   * `sdk-swap-` / `pooltx` prefix (contains `-` or `_`); a book order id is a
+   * bare ULID, so the two are unambiguous.
+   *
+   * @example
+   * const res = await lofty.getStatus(idOrBatchId);
+   * if (res.kind === 'order') console.log(res.order.state);      // 'filled' | ...
+   * else                       console.log(res.swap.state);      // 'settled' | ...
+   */
+  async getStatus(
+    id: string,
+  ): Promise<{ kind: 'order'; order: GetOrderResponse['order'] } | { kind: 'swap'; swap: GetSwapStatusResponse['swap'] }> {
+    if (!id || typeof id !== 'string') {
+      throw new Error('getStatus requires an orderId or batchId.');
+    }
+    const isBatchId = id.includes('-') || id.includes('_');
+    if (isBatchId) {
+      const { swap } = await this.amm.getSwapStatus(id);
+      return { kind: 'swap', swap };
+    }
+    const { order } = await this.orders.get(id);
+    return { kind: 'order', order };
   }
 
   /** @internal Used by resource classes. Not part of the public API. */

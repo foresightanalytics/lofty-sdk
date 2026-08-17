@@ -389,6 +389,44 @@ const { orders } = await lofty.orders.list({
 ```
 
 Available statuses: `active`, `pending`, `executing`, `executed`, `cancelled`, `expired`, `intent`.
+Each listed order also carries a normalized `state` (see below).
+
+#### Tracking an order to completion
+
+Whatever way you submitted — a book order, or a swap that routed to the book — you get
+back an `orderId`. `orders.get(orderId)` returns the order with full fill progress:
+
+```typescript
+const { order } = await lofty.orders.get(orderId);
+
+order.state;            // 'open' | 'partially_filled' | 'filled' | 'cancelled' | 'pending'
+order.filledQuantity;   // tokens filled so far
+order.remainingQuantity;// tokens still unfilled (same as order.quantity)
+order.originalQuantity;  // total tokens the order was placed for
+order.averageFillPrice;  // volume-weighted fill price in USD, or null before any fill
+order.statusReason;      // terminal detail: 'filled' | 'user_cancel' | 'insufficient_funds' | 'expired' | 'partial_fill_cancelled'
+```
+
+Branch on **`state`**, not the raw `status` — `state` is a stable, documented lifecycle.
+Fills are not instant: the matcher settles in ~30–60s, so an order reads `open` briefly
+before `filled`. Poll `orders.get` until `state` is terminal (`filled` / `cancelled`).
+
+> The existing `quantity` field is unchanged — it is the **remaining** count. The new
+> `originalQuantity` / `filledQuantity` / `remainingQuantity` give the full split.
+
+#### `lofty.getStatus(id)` — track anything by any id
+
+Don't want to remember which id type you have? `getStatus` accepts **either** a book
+`orderId` or a swap `batchId` and calls the right endpoint:
+
+```typescript
+const res = await lofty.getStatus(idOrBatchId);
+if (res.kind === 'order') {
+  console.log(res.order.state);   // 'filled' | 'open' | ...
+} else {
+  console.log(res.swap.state);    // 'settled' | 'pending' | 'failed'
+}
+```
 
 ---
 
@@ -559,9 +597,9 @@ if ('routedTo' in res && res.routedTo === 'orderbook') {
   // undercut).
   console.log(`Order ${res.orderId} resting at $${res.limitPrice}, expires ${new Date(res.expireAt)}`);
   // It may PARTIALLY fill; the remainder rests until filled, canceled
-  // (lofty.orders.cancel), or the 24h expiry. Track it via lofty.orders.get(res.orderId).
+  // (lofty.orders.cancel), or the 30-day expiry. Track it via lofty.orders.get(res.orderId).
 } else {
-  // Pool execution: watch the batch for completion.
+  // Pool execution: track it with lofty.amm.getSwapStatus(res.batchId).
   console.log(`Swap batch ${res.batchId} submitted`);
 }
 ```
@@ -574,6 +612,20 @@ Order-book routing notes:
   `price × quantity` **plus the buyer fee** (sells receive proceeds minus the seller
   fee). Keep the total including fee available — an order the wallet can no longer
   cover is canceled rather than filled short.
+
+#### `.getSwapStatus(batchId)`
+
+Track a **pool-executed** swap by the `batchId` `executeSwap()` returned. (A
+book-routed swap returns an `orderId` instead — track that with `orders.get`, or let
+`lofty.getStatus(id)` pick the right one for you.)
+
+```typescript
+const { swap } = await lofty.amm.getSwapStatus(batchId);
+
+swap.state;          // 'pending' | 'settled' | 'failed'
+swap.confirmedBlock; // Algorand round once settled (null while pending)
+swap.failureReason;  // set only when state is 'failed'
+```
 
 ---
 

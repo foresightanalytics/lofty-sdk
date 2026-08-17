@@ -7,6 +7,7 @@ import type {
   AmmQuote,
   ExecuteSwapParams,
   ExecuteSwapResponse,
+  GetSwapStatusResponse,
 } from '../types';
 
 const generateIdempotencyKey = (): string => {
@@ -116,5 +117,26 @@ export class AmmResource {
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
+  }
+
+  /**
+   * Track a pool-executed swap by the `batchId` that `executeSwap()` returns
+   * when it runs on the AMM pool. (When pool trading is paused, `executeSwap()`
+   * routes to the order book and returns an `orderId` instead — track that with
+   * `orders.get(orderId)`.)
+   *
+   * @param batchId - The `batchId` from an `executeSwap()` response
+   *
+   * @example
+   * const { swap } = await lofty.amm.getSwapStatus(batchId);
+   * // swap.state: 'pending' | 'settled' | 'failed'
+   * if (swap.state === 'settled') console.log('block', swap.confirmedBlock);
+   */
+  async getSwapStatus(batchId: string): Promise<GetSwapStatusResponse> {
+    requirePathParam(batchId, 'batchId');
+    return this.client._request<GetSwapStatusResponse>(
+      'GET',
+      `/public/v1/swaps/${encodeURIComponent(batchId)}`,
+    );
   }
 }
