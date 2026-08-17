@@ -2,7 +2,7 @@
 
 Official TypeScript SDK for the [Lofty](https://lofty.ai) trading API.
 
-Monitor LP rewards, view order books, place/cancel limit orders, and get AMM price quotes — all funded from your Lofty USDC wallet.
+Monitor LP rewards, view order books, place/cancel limit orders, get price quotes, and execute swaps — all funded from your Lofty USDC wallet.
 
 ---
 
@@ -449,7 +449,19 @@ do {
 
 ### `lofty.amm`
 
-AMM (automated market maker) pool data and price quotes. Quotes hit the on-chain Algorand contract for exact pricing.
+AMM (automated market maker) pool data, price quotes, and swaps.
+
+**Trading venues.** Properties trade on two venues: the **order book** (P2P limit
+orders, always available) and **AMM pools** (on-chain liquidity, may be temporarily
+paused platform-wide for maintenance). The API adapts automatically and tells you which
+venue served each response — branch on the response fields (`source`, `routedTo`,
+`tradingPaused`), never on assumptions about pool status:
+
+| Method | Pools available | Pools paused |
+|--------|-----------------|--------------|
+| `.getQuote()` | priced on the pool contract; `source: 'amm'` | priced from the live order book; `source: 'orderbook'` |
+| `.executeSwap()` | executes on the pool; returns `{ batchId }` | placed on the order book as a limit order; returns `{ routedTo: 'orderbook', orderId }` |
+| `.listPools()` / `.getPool()` | pool state | throws `LoftyError` `409 amm_trading_paused` |
 
 #### `.listPools()`
 
@@ -462,9 +474,14 @@ for (const p of pools) {
 }
 ```
 
+While pool trading is paused this throws `LoftyError` with `code: 'amm_trading_paused'` —
+pool state (including prices) is not served, because nothing can execute at those prices.
+Use `properties.getOrderBook()` for live depth, `properties.getTrades()` for history, and
+`amm.getQuote()` for executable pricing.
+
 #### `.getPool(poolId)`
 
-Get a single AMM pool by its numeric ID.
+Get a single AMM pool by its numeric ID. Same pause behavior as `.listPools()`.
 
 ```typescript
 const { pool } = await lofty.amm.getPool(123);
@@ -473,7 +490,16 @@ console.log(`Liquidity: ${pool.liquidity.base} tokens / $${pool.liquidity.quote}
 
 #### `.getQuote(params)`
 
-Get an exact price quote from the on-chain AMM contract. Pass **either** `tokenAmount` or `usdcAmount`.
+Get an executable price quote. Pass **either** `tokenAmount` or `usdcAmount`. Check
+`source` on every quote:
+
+- `source: 'amm'` — exact pricing from simulating the swap on the on-chain pool contract.
+- `source: 'orderbook'` (accompanied by `tradingPaused: true`) — priced by walking the
+  live order book the way a market order would fill: buys lift asks cheapest-first,
+  sells hit bids highest-first, using each order's remaining (unfilled) size. If the
+  book can't cover your size, the call throws `LoftyError`
+  `409 insufficient_book_liquidity` and the message tells you how much *can* fill —
+  you are never quoted a size that couldn't actually execute.
 
 ```typescript
 // Cost to buy 10 tokens
@@ -481,6 +507,7 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', tokenAmount: 10 }
 // q.usdcAmount  → exact USDC cost
 // q.usdcPerToken → effective price per token
 // q.slippage    → % vs reference price (positive = paying a premium)
+// q.source      → 'amm' | 'orderbook'
 
 // How many tokens $500 buys
 const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', usdcAmount: 500 });
@@ -501,11 +528,52 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', usdcAmount: 200 
 | `tokenAmount` | Property tokens involved |
 | `usdcAmount` | USDC paid (buy) or received (sell) |
 | `usdcPerToken` | Effective exchange rate |
-| `referencePrice` | Oracle price used for comparison (`priceHigh` on buys, `priceLow` on sells) |
+| `referencePrice` | Comparison price: pool `priceHigh`/`priceLow` (`source: 'amm'`) or top of book — best ask on buys, best bid on sells (`source: 'orderbook'`) |
 | `slippage` | `%` deviation from reference price. Positive = worse than reference. |
 | `priceImpact` | Per-token USDC difference vs reference (negative impact is favorable for buys) |
+| `fees` | Fee breakdown. Same shape in both modes; order-book quotes carry the exchange fee in `platform` with `lp`/`operatingReserve` at 0. |
+| `totalDebit` / `netProceeds` | What your wallet is actually debited (buys) / receives (sells), fees included |
+| `source` | `'amm'` or `'orderbook'` — which venue priced this quote |
+| `tradingPaused` | Present and `true` on order-book quotes served while pool trading is paused |
 
-> **Note on `usdcAmount` queries:** When you pass `usdcAmount`, the SDK converges on the closest achievable token quantity using 2–4 on-chain calls. The returned `usdcAmount` reflects the exact cost/receipt for that quantity and may differ slightly from your input.
+> **Note on `usdcAmount` queries:** With `source: 'amm'`, the API converges on the
+> closest achievable token quantity using 2–4 on-chain calls; the returned `usdcAmount`
+> may differ slightly from your input. With `source: 'orderbook'`, your budget is walked
+> directly down the book.
+
+#### `.executeSwap(params, idempotencyKey?)`
+
+Market-execute a buy or sell. Requires `tokenAmount` plus a slippage bound:
+`maxUsdcAmount` (buys — the most you'll pay) or `minUsdcAmount` (sells — the least
+you'll accept). **Branch on the response shape:**
+
+```typescript
+const res = await lofty.amm.executeSwap({
+  poolId: 123, side: 'buy', tokenAmount: 10, maxUsdcAmount: 500,
+});
+
+if ('routedTo' in res && res.routedTo === 'orderbook') {
+  // Placed on the order book as a limit order at your slippage bound:
+  // buys at maxUsdcAmount / tokenAmount (floored to the cent — your cap is never
+  // exceeded); sells at minUsdcAmount / tokenAmount (ceiled — your floor is never
+  // undercut).
+  console.log(`Order ${res.orderId} resting at $${res.limitPrice}, expires ${new Date(res.expireAt)}`);
+  // It may PARTIALLY fill; the remainder rests until filled, canceled
+  // (lofty.orders.cancel), or the 24h expiry. Track it via lofty.orders.get(res.orderId).
+} else {
+  // Pool execution: watch the batch for completion.
+  console.log(`Swap batch ${res.batchId} submitted`);
+}
+```
+
+Order-book routing notes:
+
+- `tokenAmount` must be a **whole number** in this mode (the book trades whole shares);
+  fractional amounts are rejected with a clear `400`.
+- Funding is deferred: your wallet is debited at match time for
+  `price × quantity` **plus the buyer fee** (sells receive proceeds minus the seller
+  fee). Keep the total including fee available — an order the wallet can no longer
+  cover is canceled rather than filled short.
 
 ---
 
@@ -619,6 +687,18 @@ try {
 | `LoftyTradingDisabledError` | 403 | Trading not enabled on API key |
 | `LoftyRateLimitError` | 429 | Rate limit exceeded; check `.retryAfter` |
 | `LoftyError` | 4xx/5xx | All other API errors |
+
+### Error codes worth handling
+
+Check `error.code` on `LoftyError` for these:
+
+| Code | Status | Meaning |
+|------|--------|---------|
+| `amm_trading_paused` | 409 | AMM pool venue is temporarily unavailable — use the order-book methods (`properties.getOrderBook`, `properties.getTrades`, `amm.getQuote`, `orders.create`) |
+| `insufficient_book_liquidity` / `no_book_liquidity` | 409 | The order book can't cover the requested size; the message says how much can fill |
+| `order_in_progress` | 409 | Another order for this property is mid-flight; retry shortly |
+| `order_rejected` | 400 | Order failed validation; the message has the reason |
+| `trading_disabled` | 400 | This specific property is not tradable |
 
 ### Rate limits
 
