@@ -548,11 +548,50 @@ export interface ExecuteSwapParams {
   minUsdcAmount?: number;
 }
 
-export interface ExecuteSwapResponse {
-  /** Batch ID for tracking the transaction status on-chain */
+/**
+ * A swap that executed on the AMM pool. Track it with
+ * `lofty.amm.getSwapStatus(batchId)`.
+ */
+export interface SwapExecutedResponse {
+  /** Batch ID for tracking the pool transaction's status. */
   batchId: string;
   result: unknown;
 }
+
+/**
+ * A swap placed on the order book instead of the pool (returned when pool
+ * trading is paused). The swap became a limit order at your slippage bound;
+ * track it with `lofty.orders.get(orderId)`. It may fill partially and rests
+ * until filled, canceled, or expiry.
+ */
+export interface SwapRoutedToBookResponse {
+  routedTo: 'orderbook';
+  tradingPaused: true;
+  /** The book order this swap became. Track with `orders.get(orderId)`. */
+  orderId: string;
+  propertyId: string;
+  side: OrderDirection;
+  quantity: number;
+  /** Limit price the order rests at (your slippage bound per share). */
+  limitPrice: number;
+  /** Unix ms expiry. */
+  expireAt: number;
+  message: string;
+}
+
+/**
+ * `executeSwap` returns one of two shapes. Branch on `routedTo`:
+ *
+ * ```typescript
+ * const res = await lofty.amm.executeSwap(params);
+ * if ('routedTo' in res) {
+ *   // Placed on the order book — track with orders.get(res.orderId)
+ * } else {
+ *   // Executed on the pool — track with amm.getSwapStatus(res.batchId)
+ * }
+ * ```
+ */
+export type ExecuteSwapResponse = SwapExecutedResponse | SwapRoutedToBookResponse;
 
 // ─── LP Rewards ───────────────────────────────────────────────────────────────
 
