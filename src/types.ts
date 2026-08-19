@@ -49,6 +49,12 @@ export interface ListPropertiesResponse {
 export interface PropertySummary {
   id: string;
   /**
+   * Decimal places the property's Algorand asset supports, and therefore the smallest tradeable slice.
+   * `0` or absent means whole shares only - this is every property today. When `assetDecimals > 0` the
+   * property accepts fractional quantities; see `CreateOrderParams.quantity`.
+   */
+  assetDecimals?: number;
+  /**
    * Registry-derived manager attribution, present only when the property is
    * statically assigned to a property manager in the registry. This is a
    * trusted server-side annotation, not the legacy internal `managerId` field.
@@ -137,7 +143,10 @@ export type ListPropertyManagerPropertiesParams = Omit<ListPropertiesParams, 'ma
 
 // ─── Order Book ───────────────────────────────────────────────────────────────
 
-/** One aggregated price level. Quantity is the total shares resting at that price. */
+/**
+ * One aggregated price level. Quantity is the total shares resting at that price, and may be
+ * FRACTIONAL for a property whose `assetDecimals > 0` - do not assume an integer.
+ */
 export interface OrderBookLevel {
   price: number | null;
   quantity: number | null;
@@ -189,7 +198,13 @@ export interface CreateOrderParams {
   direction: OrderDirection;
   /** Price per token in USD (e.g. 52.50) */
   price: number;
-  /** Number of tokens */
+  /**
+   * Number of tokens.
+   * - `assetDecimals: 0` (every property today): WHOLE tokens only.
+   * - `assetDecimals > 0`: fractional, in multiples of `ORDER_STEP` (0.01), and the order must be
+   *   worth at least `MIN_ORDER_NOTIONAL_USD` ($1.00).
+   * Read `assetDecimals` from the property to know which rule applies.
+   */
   quantity: number;
   /**
    * Order expiry as a Unix timestamp in milliseconds.
@@ -248,7 +263,7 @@ export interface Order {
   direction: OrderDirection;
   /** Price per token in USD */
   price: number;
-  /** REMAINING (unfilled) token count. Same value as `remainingQuantity`. */
+  /** REMAINING (unfilled) token count. Same value as `remainingQuantity`. May be fractional. */
   quantity: number;
   status: OrderStatus;
   paymentCurrency: string;
@@ -359,6 +374,7 @@ export interface Trade {
   propertyId: string;
   direction: 'buy' | 'sell';
   price: number;
+  /** May be fractional for a property whose `assetDecimals > 0` - do not assume an integer. */
   quantity: number;
   paymentCurrency: string;
   buyerFeeAmount: number;
@@ -606,7 +622,7 @@ export interface LpRewardsProgram {
    * be eligible. Tighter (closer to midpoint) orders qualify; wide quotes don't.
    */
   allowedSpread: number;
-  /** Minimum remaining quantity (shares) an order must have to count. */
+  /** Minimum remaining quantity (shares) an order must have to count. May be fractional. */
   minContracts: number;
   /**
    * Minimum eligible liquidity (shares) required on EACH side of the book for
@@ -628,3 +644,14 @@ export interface ListLpRewardsProgramsResponse {
 export interface GetLpRewardsProgramResponse {
   program: LpRewardsProgram;
 }
+
+// ─── Quantity granularity ─────────────────────────────────────────────────────
+
+/**
+ * Smallest quantity increment the order book accepts for a property with `assetDecimals > 0`.
+ * Properties with `assetDecimals: 0` accept whole tokens only.
+ */
+export const ORDER_STEP = 0.01;
+
+/** Minimum order value in USD for a property with `assetDecimals > 0`. */
+export const MIN_ORDER_NOTIONAL_USD = 1.0;

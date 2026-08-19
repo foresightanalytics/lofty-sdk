@@ -1,5 +1,6 @@
 import type { LoftyClient } from '../client';
-import { requirePathParam } from '../errors';
+import { LoftyError, requirePathParam } from '../errors';
+import { ORDER_STEP } from '../types';
 import type {
   CreateOrderParams,
   CreateOrderResponse,
@@ -33,6 +34,24 @@ export class OrdersResource {
    * });
    */
   async create(params: CreateOrderParams, idempotencyKey?: string): Promise<CreateOrderResponse> {
+    // Fail locally on a quantity the book cannot represent, rather than on a round trip. Whole-share
+    // properties (assetDecimals 0) are unaffected: an integer is always a multiple of ORDER_STEP.
+    if (!Number.isFinite(params.quantity) || params.quantity <= 0) {
+      throw new LoftyError(400, {
+        code: 'invalid_field',
+        message: 'quantity must be a number greater than 0.',
+        field: 'quantity',
+      });
+    }
+    const steps = params.quantity / ORDER_STEP;
+    if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+      throw new LoftyError(400, {
+        code: 'invalid_field',
+        message: `quantity must be a multiple of ${ORDER_STEP}.`,
+        field: 'quantity',
+        hint: 'Properties with assetDecimals 0 accept whole shares only; check the property\'s assetDecimals.',
+      });
+    }
     return this.client._request<CreateOrderResponse>('POST', '/public/v1/orders', {
       body: {
         propertyId: params.propertyId,
