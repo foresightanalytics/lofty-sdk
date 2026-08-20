@@ -36,14 +36,18 @@ export class OrdersResource {
   async create(params: CreateOrderParams, idempotencyKey?: string): Promise<CreateOrderResponse> {
     // Fail locally on a quantity the book cannot represent, rather than on a round trip. Whole-share
     // properties (assetDecimals 0) are unaffected: an integer is always a multiple of ORDER_STEP.
-    if (!Number.isFinite(params.quantity) || params.quantity <= 0) {
+    //
+    // Coerced with Number() rather than checked with typeof: an untyped JS caller passing "5" was
+    // accepted before this guard existed (the API parses the body value), and must keep working.
+    const quantity = Number(params.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new LoftyError(400, {
         code: 'invalid_field',
         message: 'quantity must be a number greater than 0.',
         field: 'quantity',
       });
     }
-    const steps = params.quantity / ORDER_STEP;
+    const steps = quantity / ORDER_STEP;
     if (Math.abs(steps - Math.round(steps)) > 1e-9) {
       throw new LoftyError(400, {
         code: 'invalid_field',

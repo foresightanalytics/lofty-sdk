@@ -9,6 +9,9 @@ export {
 } from './errors';
 export type { LoftyErrorCode, LoftyErrorBody } from './errors';
 
+// Value exports (not types): quantity granularity constants.
+export { ORDER_STEP, MIN_ORDER_NOTIONAL_USD } from './types';
+
 export type {
   // AMM
   AmmAsset,
