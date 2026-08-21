@@ -25,12 +25,17 @@ export class OrdersResource {
    * Place a limit order on the Lofty exchange. Funded from your Lofty USDC wallet.
    * Trading must be enabled on your API key.
    *
+   * Optionally apply gift and/or rental-income balance toward a buy with
+   * `useGift` / `useRent` (whole US dollars); read the amounts you have from
+   * `account.getBalance()`.
+   *
    * @example
    * const { orderId } = await lofty.orders.create({
    *   propertyId: 'prop_123',
    *   direction: 'buy',
    *   price: 52.00,
    *   quantity: 10,
+   *   useGift: 25, // apply $25 of gift balance; the rest funds from your USDC wallet
    * });
    */
   async create(params: CreateOrderParams, idempotencyKey?: string): Promise<CreateOrderResponse> {
@@ -56,6 +61,28 @@ export class OrdersResource {
         hint: 'Properties with assetDecimals 0 accept whole shares only; check the property\'s assetDecimals.',
       });
     }
+    // Gift/rent credit is optional and applies only to a buy. Validated locally
+    // (same fail-fast style as quantity, same Number() coercion for untyped JS
+    // callers) ONLY when a value is supplied — omitting both leaves the request
+    // byte-for-byte unchanged. The authoritative balance check runs server-side.
+    for (const [field, value] of [['useGift', params.useGift], ['useRent', params.useRent]] as const) {
+      if (value === undefined || value === null) { continue; }
+      const amount = Number(value);
+      if (!Number.isFinite(amount) || amount < 0) {
+        throw new LoftyError(400, {
+          code: 'invalid_field',
+          message: `${field} must be a non-negative number of dollars.`,
+          field,
+        });
+      }
+      if (amount > 0 && params.direction !== 'buy') {
+        throw new LoftyError(400, {
+          code: 'invalid_field',
+          message: `${field} can only be applied to buy orders.`,
+          field: 'direction',
+        });
+      }
+    }
     return this.client._request<CreateOrderResponse>('POST', '/public/v1/orders', {
       body: {
         propertyId: params.propertyId,
@@ -63,6 +90,8 @@ export class OrdersResource {
         price: params.price,
         quantity: params.quantity,
         expireAt: params.expireAt,
+        useGift: params.useGift,
+        useRent: params.useRent,
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
