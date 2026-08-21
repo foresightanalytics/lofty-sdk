@@ -211,6 +211,22 @@ export interface CreateOrderParams {
    * Defaults to 30 days from now. Must be at least 29 days in the future.
    */
   expireAt?: number;
+  /**
+   * Gift-certificate balance to apply toward a **buy**, in whole US dollars
+   * (the same unit `account.getBalance()` reports as `giftBalance`). Optional;
+   * defaults to 0. Reduces the USDC your wallet must cover at match time. Only
+   * valid on `direction: 'buy'`, and capped at your available gift balance —
+   * over-requesting is rejected with `insufficient_gift`.
+   */
+  useGift?: number;
+  /**
+   * Rental-income balance to apply toward a **buy**, in whole US dollars (the
+   * same unit `account.getBalance()` reports as `rentBalance`). Optional;
+   * defaults to 0. Reduces the USDC your wallet must cover at match time. Only
+   * valid on `direction: 'buy'`, and capped at your available rent balance —
+   * over-requesting is rejected with `insufficient_rent`.
+   */
+  useRent?: number;
 }
 
 export interface CreateOrderResponse {

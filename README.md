@@ -349,6 +349,8 @@ const { orderId } = await lofty.orders.create({
   price: 52.00,         // USD per token
   quantity: 10,
   expireAt: Date.now() + 30 * 24 * 60 * 60 * 1000, // optional, defaults to 30 days
+  useGift: 25,          // optional: apply $25 gift balance to a buy
+  useRent: 10,          // optional: apply $10 rental-income balance to a buy
 });
 ```
 
@@ -359,6 +361,10 @@ const { orderId } = await lofty.orders.create({
 | `price` | `number` | yes | Price per token in USD (min $0.01) |
 | `quantity` | `number` | yes | Number of tokens (min 1) |
 | `expireAt` | `number` | no | Unix ms expiry (min 29 days from now, default 30 days) |
+| `useGift` | `number` | no | Gift balance (whole USD) to apply to a **buy**; default 0. Capped at your `giftBalance`; buy-only |
+| `useRent` | `number` | no | Rental-income balance (whole USD) to apply to a **buy**; default 0. Capped at your `rentBalance`; buy-only |
+
+Gift/rent credit reduces the USDC your wallet must cover at match time; the remainder still funds from your wallet. Read your available amounts from [`account.getBalance()`](#getbalance) (`giftBalance` / `rentBalance`). Over-requesting is rejected with `insufficient_gift` / `insufficient_rent`; sending either on a sell is rejected.
 
 Pass an `idempotencyKey` to safely retry a failed request without double-submitting:
 
