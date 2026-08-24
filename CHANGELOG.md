@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0
+
+### Advanced order types (fractional properties)
+
+`orders.create()` accepts `orderType: 'stop_loss' | 'stop_limit' | 'trailing_stop'` with
+`triggerPrice` / `triggerLimitPrice` / `trailPercent` / `referenceWindowDays` (7 | 14 | 30).
+Trigger orders rest hidden until the platform fires them against a manipulation-hardened
+volume-weighted reference price, then convert into ordinary limit orders. Order reads
+include the trigger lifecycle (`triggerState`, `trailWatermark`, `triggeredAt`, ...), and
+`orders.list()` accepts a `triggerState` filter. `price` is now optional on trigger orders.
+
+### Recurring investment plans (fractional properties)
+
+New `lofty.recurring` resource: `create()` / `list()` / `cancel()`. Card-funded plans charge
+the saved card off-session only when a run's order actually fills (charge-at-match);
+Apple Pay / Google Pay cards are supported.
+
+### Fixes
+
+Corrected stale docs claiming quantity must be whole ("Minimum 1") — fractional
+properties trade in multiples of 0.01 with a $1 minimum notional.
+
 ## 0.3.0
 
 ### Fractional share quantities

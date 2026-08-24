@@ -10,7 +10,7 @@ export {
 export type { LoftyErrorCode, LoftyErrorBody } from './errors';
 
 // Value exports (not types): quantity granularity constants.
-export { ORDER_STEP, MIN_ORDER_NOTIONAL_USD } from './types';
+export { ORDER_STEP, MIN_ORDER_NOTIONAL_USD, REFERENCE_WINDOW_CHOICES_DAYS } from './types';
 
 export type {
   // AMM
@@ -46,6 +46,8 @@ export type {
   // Orders
   OrderDirection,
   OrderStatus,
+  OrderType,
+  TriggerState,
   CreateOrderParams,
   CreateOrderResponse,
   GetOrderResponse,
@@ -54,6 +56,15 @@ export type {
   ListOrdersParams,
   ListOrdersResponse,
   Order,
+  // Recurring investment plans
+  RecurringCadence,
+  RecurringFundingPreference,
+  RecurringPlanStatus,
+  RecurringPlan,
+  CreateRecurringPlanParams,
+  CreateRecurringPlanResponse,
+  ListRecurringPlansResponse,
+  CancelRecurringPlanResponse,
   // Account
   AccountBalance,
   Position,
