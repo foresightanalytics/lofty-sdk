@@ -1,6 +1,6 @@
 import type { LoftyClient } from '../client';
 import { LoftyError, requirePathParam } from '../errors';
-import { ORDER_STEP } from '../types';
+import { ORDER_STEP, REFERENCE_WINDOW_CHOICES_DAYS } from '../types';
 import type {
   CreateOrderParams,
   CreateOrderResponse,
@@ -10,6 +10,8 @@ import type {
   ListOrdersParams,
   ListOrdersResponse,
 } from '../types';
+
+const TRIGGER_ORDER_TYPES = ['stop_loss', 'stop_limit', 'trailing_stop'];
 
 const generateIdempotencyKey = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -22,8 +24,19 @@ export class OrdersResource {
   constructor(private readonly client: LoftyClient) {}
 
   /**
-   * Place a limit order on the Lofty exchange. Funded from your Lofty USDC wallet.
+   * Place an order on the Lofty exchange. Funded from your Lofty USDC wallet.
    * Trading must be enabled on your API key.
+   *
+   * `orderType` defaults to `'limit'`. On fractional properties you can also place
+   * `stop_loss` / `stop_limit` / `trailing_stop` orders — they rest hidden until
+   * the platform's trigger engine fires them (see {@link OrderType}):
+   *
+   * @example
+   * // Stop loss: sell 10 tokens if the 30-day average price falls to $45
+   * const { orderId } = await lofty.orders.create({
+   *   propertyId: 'prop_123', direction: 'sell', quantity: 10,
+   *   orderType: 'stop_loss', triggerPrice: 45,
+   * });
    *
    * Optionally apply gift and/or rental-income balance toward a buy with
    * `useGift` / `useRent` (whole US dollars); read the amounts you have from
@@ -61,6 +74,58 @@ export class OrdersResource {
         hint: 'Properties with assetDecimals 0 accept whole shares only; check the property\'s assetDecimals.',
       });
     }
+    // Trigger orders: fail locally on shapes the API will reject, so integrators see
+    // the problem at the call site instead of a round trip. All values are re-validated
+    // server-side; these checks only mirror the contract.
+    const orderType = params.orderType;
+    const isTriggerOrder = orderType !== undefined && TRIGGER_ORDER_TYPES.includes(orderType);
+    if (isTriggerOrder) {
+      if (orderType !== 'trailing_stop' && !(Number(params.triggerPrice) > 0)) {
+        throw new LoftyError(400, {
+          code: 'invalid_trigger_price',
+          message: `${orderType} orders require a positive triggerPrice.`,
+          field: 'triggerPrice',
+        });
+      }
+      if (orderType === 'stop_limit' && !(Number(params.triggerLimitPrice) > 0)) {
+        throw new LoftyError(400, {
+          code: 'invalid_trigger_price',
+          message: 'stop_limit orders require a positive triggerLimitPrice.',
+          field: 'triggerLimitPrice',
+        });
+      }
+      if (orderType === 'trailing_stop') {
+        const trail = Number(params.trailPercent);
+        if (!Number.isFinite(trail) || trail < 1 || trail > 50) {
+          throw new LoftyError(400, {
+            code: 'invalid_trail_percent',
+            message: 'trailing_stop orders require trailPercent between 1 and 50.',
+            field: 'trailPercent',
+          });
+        }
+      }
+      if (params.referenceWindowDays !== undefined
+        && !(REFERENCE_WINDOW_CHOICES_DAYS as readonly number[]).includes(Number(params.referenceWindowDays))) {
+        throw new LoftyError(400, {
+          code: 'invalid_trigger_params',
+          message: `referenceWindowDays must be one of ${REFERENCE_WINDOW_CHOICES_DAYS.join(', ')}.`,
+          field: 'referenceWindowDays',
+        });
+      }
+      if ((Number(params.useGift) || 0) > 0 || (Number(params.useRent) || 0) > 0) {
+        throw new LoftyError(400, {
+          code: 'invalid_field',
+          message: 'Trigger orders are funded from your Lofty USDC wallet only — gift/rent cannot be applied.',
+          field: 'orderType',
+        });
+      }
+    } else if (params.price === undefined || params.price === null) {
+      throw new LoftyError(400, {
+        code: 'missing_field',
+        message: 'price is required for limit/market orders.',
+        field: 'price',
+      });
+    }
     // Gift/rent credit is optional and applies only to a buy. Validated locally
     // (same fail-fast style as quantity, same Number() coercion for untyped JS
     // callers) ONLY when a value is supplied — omitting both leaves the request
@@ -92,6 +157,11 @@ export class OrdersResource {
         expireAt: params.expireAt,
         useGift: params.useGift,
         useRent: params.useRent,
+        orderType: params.orderType,
+        triggerPrice: params.triggerPrice,
+        triggerLimitPrice: params.triggerLimitPrice,
+        trailPercent: params.trailPercent,
+        referenceWindowDays: params.referenceWindowDays,
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
@@ -151,6 +221,7 @@ export class OrdersResource {
       params: {
         propertyId: params.propertyId,
         status: params.status,
+        triggerState: params.triggerState,
         all: params.all ? 'true' : undefined,
       },
     });

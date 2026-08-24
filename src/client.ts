@@ -1,6 +1,7 @@
 import { LoftyError, LoftyAuthError, LoftyTradingDisabledError, LoftyRateLimitError, type LoftyErrorBody } from './errors';
 import { PropertiesResource } from './resources/properties';
 import { OrdersResource } from './resources/orders';
+import { RecurringResource } from './resources/recurring';
 import { AccountResource } from './resources/account';
 import { AmmResource } from './resources/amm';
 import { LpRewardsResource } from './resources/lpRewards';
@@ -26,6 +27,7 @@ export class LoftyClient {
   readonly properties: PropertiesResource;
   /** Create, cancel, and list orders. Requires trading to be enabled on your API key. */
   readonly orders: OrdersResource;
+  readonly recurring: RecurringResource;
   /** Account balance, token positions, and LP reward history. */
   readonly account: AccountResource;
   /** AMM pool info, price quotes, and swap execution. */
@@ -62,6 +64,7 @@ export class LoftyClient {
 
     this.properties = new PropertiesResource(this);
     this.orders = new OrdersResource(this);
+    this.recurring = new RecurringResource(this);
     this.account = new AccountResource(this);
     this.amm = new AmmResource(this);
     this.lpRewards = new LpRewardsResource(this);

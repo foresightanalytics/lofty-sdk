@@ -193,19 +193,60 @@ export type OrderStatus =
   | 'expired'
   | 'intent';
 
+/**
+ * How an order behaves. `limit` (default) and `market` rest on the book at `price`.
+ * The trigger types — fractional properties only — rest HIDDEN until the platform's
+ * trigger engine fires them, then convert into ordinary limit orders:
+ * - `stop_loss`: requires `triggerPrice`; fires when the reference crosses it
+ *   (sell: at/below, buy: at/above), then goes live at the marketable book price.
+ * - `stop_limit`: requires `triggerPrice` + `triggerLimitPrice` (sell: limit <= trigger,
+ *   buy: limit >= trigger); goes live at `triggerLimitPrice`.
+ * - `trailing_stop`: requires `trailPercent` (1-50); the trigger trails the
+ *   reference's high (sell) / low (buy) watermark by that percent.
+ * The reference is a volume-weighted average of real book fills over
+ * `referenceWindowDays` — never a single trade print. A fired order never converts
+ * more than 20% past its trigger line. Trigger orders are funded from your Lofty
+ * USDC wallet only (no gift/rent), and are capped at 3 pending per property.
+ */
+export type OrderType = 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop';
+
+/** Lifecycle of a trigger order. `pending` = armed and hidden; `triggered` = live on the book. */
+export type TriggerState = 'pending' | 'triggered';
+
+/** Allowed `referenceWindowDays` values for trigger orders. */
+export const REFERENCE_WINDOW_CHOICES_DAYS = [7, 14, 30] as const;
+
 export interface CreateOrderParams {
   propertyId: string;
   direction: OrderDirection;
-  /** Price per token in USD (e.g. 52.50) */
-  price: number;
+  /**
+   * Price per token in USD (e.g. 52.50). Required for `limit`/`market` orders.
+   * Optional for trigger orders — the resting price is normalized server-side
+   * (stop -> trigger price, stop_limit -> limit price).
+   */
+  price?: number;
   /**
    * Number of tokens.
-   * - `assetDecimals: 0` (every property today): WHOLE tokens only.
-   * - `assetDecimals > 0`: fractional, in multiples of `ORDER_STEP` (0.01), and the order must be
-   *   worth at least `MIN_ORDER_NOTIONAL_USD` ($1.00).
+   * - `assetDecimals: 0`: WHOLE tokens only.
+   * - `assetDecimals > 0` (fractional properties): multiples of `ORDER_STEP` (0.01), and the
+   *   order must be worth at least `MIN_ORDER_NOTIONAL_USD` ($1.00).
    * Read `assetDecimals` from the property to know which rule applies.
    */
   quantity: number;
+  /** Order behavior; defaults to `'limit'`. See {@link OrderType}. */
+  orderType?: OrderType;
+  /** stop_loss / stop_limit: USD/token reference price that arms the order. */
+  triggerPrice?: number;
+  /** stop_limit only: limit price of the converted order once triggered. */
+  triggerLimitPrice?: number;
+  /** trailing_stop only: trail distance in percent (1-50). */
+  trailPercent?: number;
+  /**
+   * Reference window for trigger orders, in days: 7, 14, or 30 (default 30).
+   * The trigger watches the volume-weighted average price of real book fills over
+   * this window; wash trades, sub-$5 fills, and flash pairs are excluded.
+   */
+  referenceWindowDays?: number;
   /**
    * Order expiry as a Unix timestamp in milliseconds.
    * Defaults to 30 days from now. Must be at least 29 days in the future.
@@ -252,6 +293,8 @@ export interface ListOrdersParams {
   /** Fetch all orders across all properties. Provide this or `propertyId`. */
   all?: boolean;
   status?: OrderStatus;
+  /** Only trigger orders in this state — e.g. `'pending'` to list your armed stops. */
+  triggerState?: TriggerState;
 }
 
 /**
@@ -301,6 +344,21 @@ export interface Order {
   statusReason?: OrderStatusReason;
   /** Unix ms of the most recent order event. Single-order endpoint only. */
   lastUpdatedAt?: number;
+
+  // ─── Trigger-order fields (present only on stop/stop-limit/trailing orders) ───
+  /** Order behavior. Absent on pre-existing orders (treat as 'limit'). */
+  orderType?: OrderType;
+  /** `pending` = armed and hidden from the book; `triggered` = live. */
+  triggerState?: TriggerState;
+  triggerPrice?: number;
+  triggerLimitPrice?: number;
+  trailPercent?: number;
+  /** trailing_stop: the high (sell) / low (buy) watermark the trail follows. */
+  trailWatermark?: number;
+  /** Unix ms the trigger engine fired this order. */
+  triggeredAt?: number;
+  /** Reference window (days) this order watches. */
+  referenceWindowDays?: number;
 }
 
 /** Normalized lifecycle for a pool-executed swap. */
@@ -671,3 +729,61 @@ export const ORDER_STEP = 0.01;
 
 /** Minimum order value in USD for a property with `assetDecimals > 0`. */
 export const MIN_ORDER_NOTIONAL_USD = 1.0;
+
+// ─── Recurring investment plans (fractional properties only) ─────────────────
+
+export type RecurringCadence = 'weekly' | 'two_weeks' | 'monthly' | 'three_months';
+
+/**
+ * How each run funds the residual after rent-then-gift balances are applied:
+ * your Lofty USDC wallet (run fails if short) or the saved card — charged
+ * off-session only when the run's order actually fills (charge-at-match).
+ */
+export type RecurringFundingPreference = 'balances_then_wallet' | 'balances_then_card';
+
+export type RecurringPlanStatus = 'active' | 'paused' | 'cancelled';
+
+export interface RecurringPlan {
+  planId: string;
+  propertyId: string;
+  /** Dollars per run. */
+  usdAmount: number;
+  cadence: RecurringCadence;
+  fundingPreference: RecurringFundingPreference;
+  savedPaymentMethodId?: string;
+  status: RecurringPlanStatus;
+  /** Why a paused plan paused (e.g. 'card_expired', 'no_reference_price'). */
+  pauseReason?: string;
+  /** Unix ms of the next scheduled run. */
+  nextRunAt: number;
+  lastRunAt?: number;
+  lastRunOutcome?: string;
+  createdAt: number;
+}
+
+export interface CreateRecurringPlanParams {
+  propertyId: string;
+  /** Dollars to invest per run. Minimum $5. */
+  usdAmount: number;
+  cadence: RecurringCadence;
+  fundingPreference: RecurringFundingPreference;
+  /**
+   * Required for `balances_then_card`: a card id from
+   * `account.getPaymentMethods()`. Express-wallet cards (Apple Pay / Google Pay)
+   * are supported — the platform attaches them for off-session use.
+   */
+  savedPaymentMethodId?: string;
+}
+
+export interface CreateRecurringPlanResponse {
+  plan: RecurringPlan;
+}
+
+export interface ListRecurringPlansResponse {
+  plans: RecurringPlan[];
+}
+
+export interface CancelRecurringPlanResponse {
+  planId: string;
+  cancelled: boolean;
+}

@@ -358,11 +358,32 @@ const { orderId } = await lofty.orders.create({
 |-------|------|----------|-------------|
 | `propertyId` | `string` | yes | Lofty property ID |
 | `direction` | `'buy' \| 'sell'` | yes | Order side |
-| `price` | `number` | yes | Price per token in USD (min $0.01) |
-| `quantity` | `number` | yes | Number of tokens (min 1) |
+| `price` | `number` | for limit/market | Price per token in USD (min $0.01). Optional on trigger orders (normalized server-side) |
+| `quantity` | `number` | yes | Number of tokens — whole shares for `assetDecimals: 0` properties; multiples of 0.01 (min $1 notional) for fractional ones |
 | `expireAt` | `number` | no | Unix ms expiry (min 29 days from now, default 30 days) |
-| `useGift` | `number` | no | Gift balance (whole USD) to apply to a **buy**; default 0. Capped at your `giftBalance`; buy-only |
-| `useRent` | `number` | no | Rental-income balance (whole USD) to apply to a **buy**; default 0. Capped at your `rentBalance`; buy-only |
+| `orderType` | `string` | no | `limit` (default), `market`, or — fractional properties only — `stop_loss`, `stop_limit`, `trailing_stop` |
+| `triggerPrice` | `number` | for stop types | USD/token reference price that arms the order |
+| `triggerLimitPrice` | `number` | for stop_limit | Limit price of the converted order (sell: ≤ trigger; buy: ≥ trigger) |
+| `trailPercent` | `number` | for trailing_stop | Trail distance in percent (1–50) |
+| `referenceWindowDays` | `number` | no | Trigger reference window: 7, 14, or 30 (default 30) |
+| `useGift` | `number` | no | Gift balance (whole USD) to apply to a **buy**; default 0. Capped at your `giftBalance`; buy-only. Not valid on trigger orders |
+| `useRent` | `number` | no | Rental-income balance (whole USD) to apply to a **buy**; default 0. Capped at your `rentBalance`; buy-only. Not valid on trigger orders |
+
+**Trigger orders** (`stop_loss` / `stop_limit` / `trailing_stop`) rest **hidden** until the platform's trigger engine fires them, then convert into ordinary limit orders. The trigger watches a volume-weighted average of real book fills over `referenceWindowDays` — wash trades, sub-$5 fills, and flash pairs are excluded, and a fired order never converts more than 20% past its trigger line. Fractional properties only; funded from your Lofty USDC wallet only; max 3 pending per property. Cancel them like any order.
+
+```typescript
+// Sell 10 tokens if the 30-day average price falls to $45
+await lofty.orders.create({
+  propertyId: 'prop_123', direction: 'sell', quantity: 10,
+  orderType: 'stop_loss', triggerPrice: 45,
+});
+
+// Trailing stop: sell if the price gives back 5% from its high
+await lofty.orders.create({
+  propertyId: 'prop_123', direction: 'sell', quantity: 10,
+  orderType: 'trailing_stop', trailPercent: 5, referenceWindowDays: 7,
+});
+```
 
 Gift/rent credit reduces the USDC your wallet must cover at match time; the remainder still funds from your wallet. Read your available amounts from [`account.getBalance()`](#getbalance) (`giftBalance` / `rentBalance`). Over-requesting is rejected with `insufficient_gift` / `insufficient_rent`; sending either on a sell is rejected.
 
@@ -395,7 +416,8 @@ const { orders } = await lofty.orders.list({
 ```
 
 Available statuses: `active`, `pending`, `executing`, `executed`, `cancelled`, `expired`, `intent`.
-Each listed order also carries a normalized `state` (see below).
+Each listed order also carries a normalized `state` (see below). Pass `triggerState: 'pending'`
+to list only your armed stop/trailing orders.
 
 #### Tracking an order to completion
 
@@ -435,6 +457,23 @@ if (res.kind === 'order') {
 ```
 
 ---
+
+### `lofty.recurring`
+
+Recurring investment plans — **fractional properties only**. A plan buys `usdAmount` of the property at the marketable book price on a schedule (`weekly`, `two_weeks`, `monthly`, `three_months`). Each run applies your rent balance, then gift balance; the residual comes from your Lofty USDC wallet (`balances_then_wallet`) or a saved card charged **only when the run's order fills** (`balances_then_card` — if it never fills, the card is never charged). Apple Pay / Google Pay cards from checkout are supported. Plans pause after 3 consecutive failed runs (or immediately on permanent problems) with a `pauseReason`.
+
+```typescript
+const { plan } = await lofty.recurring.create({
+  propertyId: 'prop_123',
+  usdAmount: 50,                          // ≥ $5 per run
+  cadence: 'monthly',
+  fundingPreference: 'balances_then_card',
+  savedPaymentMethodId: 'pm_...',         // from account.getPaymentMethods()
+});
+
+const { plans } = await lofty.recurring.list();
+await lofty.recurring.cancel(plan.planId);
+```
 
 ### `lofty.account`
 
