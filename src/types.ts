@@ -787,3 +787,50 @@ export interface CancelRecurringPlanResponse {
   planId: string;
   cancelled: boolean;
 }
+
+// ─── Partner user onboarding (restricted) ────────────────────────────────────
+// Available only to partner accounts Lofty has explicitly enabled. All other
+// accounts receive 403 `partner_not_whitelisted`. Deliberately undocumented in
+// the README — access is arranged directly with Lofty.
+
+export interface OnboardUserParams {
+  /** Customer's email — becomes their Lofty login. Must not already have an account. */
+  email: string;
+  firstName: string;
+  lastName: string;
+  /** E.164, e.g. `+12025550123`. Stored pre-verified. */
+  phoneNumber: string;
+  /** `YYYY-MM-DD`. */
+  birthdate: string;
+  streetAddress: string;
+  city: string;
+  addressState: string;
+  postalCode: string;
+  country: string;
+  /** US customers only; optional. */
+  ssn?: string;
+  /**
+   * Optional initial password (min 10 chars). Omitted → Lofty generates one and
+   * returns it as `temporaryPassword`. Either way it is TEMPORARY: the customer
+   * must set their own password on first login, at which point the initial
+   * credential stops working. Unused temporary passwords expire after 7 days.
+   */
+  password?: string;
+}
+
+export interface OnboardedUser {
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  /** The customer's Lofty (Algorand) wallet address. */
+  walletAddress: string | null;
+  verificationStatus: 'accept';
+}
+
+export interface OnboardUserResponse {
+  user: OnboardedUser;
+  /** Present only when Lofty generated the password. Shown exactly once. */
+  temporaryPassword?: string;
+  mustChangePasswordOnFirstLogin: true;
+}
