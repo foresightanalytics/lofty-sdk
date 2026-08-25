@@ -1,0 +1,83 @@
+import type { LoftyClient } from '../client';
+import { LoftyError } from '../errors';
+import type { OnboardUserParams, OnboardUserResponse } from '../types';
+
+const generateIdempotencyKey = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const E164_RE = /^\+[1-9]\d{6,14}$/;
+const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const REQUIRED: Array<keyof OnboardUserParams> = [
+  'email', 'firstName', 'lastName', 'phoneNumber', 'birthdate',
+  'streetAddress', 'city', 'addressState', 'postalCode', 'country',
+];
+
+/**
+ * Partner user onboarding — restricted.
+ *
+ * Only partner accounts Lofty has explicitly enabled may call this; all other
+ * accounts receive 403 `partner_not_whitelisted`. Access is arranged directly
+ * with Lofty. Intentionally absent from the README.
+ */
+export class UsersResource {
+  constructor(private readonly client: LoftyClient) {}
+
+  /**
+   * Create a fully-provisioned Lofty account for a customer your organization
+   * has already KYC'd. The account is created verified — login (email + phone
+   * pre-verified), wallet, and on-chain verification — and is immediately able
+   * to deposit and trade. The customer must set their own password on first
+   * login; the initial credential stops working at that moment.
+   *
+   * Duplicate protection you cannot bypass: an email that already has a Lofty
+   * account → 409 `user_already_exists`; an identity (name + address) that
+   * already has one → 409 `identity_already_exists`.
+   */
+  async create(params: OnboardUserParams, idempotencyKey?: string): Promise<OnboardUserResponse> {
+    for (const field of REQUIRED) {
+      if (!String(params[field] ?? '').trim()) {
+        throw new LoftyError(400, {
+          code: 'missing_field',
+          message: `${field} is required.`,
+          field,
+        });
+      }
+    }
+    if (!EMAIL_RE.test(params.email.trim())) {
+      throw new LoftyError(400, { code: 'invalid_email', message: 'email must be a valid email address.', field: 'email' });
+    }
+    if (!E164_RE.test(params.phoneNumber.replace(/[\s()-]/g, ''))) {
+      throw new LoftyError(400, { code: 'invalid_phone', message: 'phoneNumber must be E.164 (e.g. +12025550123).', field: 'phoneNumber' });
+    }
+    if (!DOB_RE.test(params.birthdate)) {
+      throw new LoftyError(400, { code: 'invalid_birthdate', message: 'birthdate must be YYYY-MM-DD.', field: 'birthdate' });
+    }
+    if (params.password !== undefined && String(params.password).length < 10) {
+      throw new LoftyError(400, { code: 'invalid_password', message: 'password must be at least 10 characters.', field: 'password' });
+    }
+
+    return this.client._request<OnboardUserResponse>('POST', '/public/v1/users', {
+      body: {
+        email: params.email,
+        firstName: params.firstName,
+        lastName: params.lastName,
+        phoneNumber: params.phoneNumber,
+        birthdate: params.birthdate,
+        streetAddress: params.streetAddress,
+        city: params.city,
+        addressState: params.addressState,
+        postalCode: params.postalCode,
+        country: params.country,
+        ssn: params.ssn,
+        password: params.password,
+      },
+      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+    });
+  }
+}

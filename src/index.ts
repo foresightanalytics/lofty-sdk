@@ -65,6 +65,10 @@ export type {
   CreateRecurringPlanResponse,
   ListRecurringPlansResponse,
   CancelRecurringPlanResponse,
+  // Partner user onboarding (restricted)
+  OnboardUserParams,
+  OnboardedUser,
+  OnboardUserResponse,
   // Account
   AccountBalance,
   Position,

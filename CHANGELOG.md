@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Internal: additional resource for Lofty-arranged partner integrations.
+
 ## 0.5.0
 
 ### Advanced order types (fractional properties)

@@ -6,6 +6,7 @@ import { AccountResource } from './resources/account';
 import { AmmResource } from './resources/amm';
 import { LpRewardsResource } from './resources/lpRewards';
 import { PropertyManagersResource } from './resources/propertyManagers';
+import { UsersResource } from './resources/users';
 import type { GetOrderResponse, GetSwapStatusResponse } from './types';
 
 export interface LoftyClientOptions {
@@ -36,6 +37,8 @@ export class LoftyClient {
   readonly lpRewards: LpRewardsResource;
   /** Discover property managers, read public profiles, and list their public properties. */
   readonly propertyManagers: PropertyManagersResource;
+  /** Partner user onboarding — restricted to Lofty-enabled partner accounts. */
+  readonly users: UsersResource;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -68,6 +71,7 @@ export class LoftyClient {
     this.account = new AccountResource(this);
     this.amm = new AmmResource(this);
     this.lpRewards = new LpRewardsResource(this);
+    this.users = new UsersResource(this);
     // Constructed after `properties` because it delegates to it.
     this.propertyManagers = new PropertyManagersResource(this, this.properties);
   }
