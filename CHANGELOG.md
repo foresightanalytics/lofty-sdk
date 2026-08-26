@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3
+
+- Internal: extends the Lofty-arranged partner integration surface.
+
+## 0.5.2
+
+- Internal: extends the Lofty-arranged partner integration surface.
+
 ## 0.5.1
 
 - Internal: additional resource for Lofty-arranged partner integrations.

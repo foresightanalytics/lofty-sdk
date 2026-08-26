@@ -1,6 +1,16 @@
 import type { LoftyClient } from '../client';
 import { LoftyError } from '../errors';
-import type { OnboardUserParams, OnboardUserResponse } from '../types';
+import type {
+  CreateUserApiKeyParams,
+  CreateUserApiKeyResponse,
+  GetDepositAddressesResponse,
+  ListUserApiKeysResponse,
+  RevokeUserApiKeyResponse,
+  ListOnboardedUsersParams,
+  ListOnboardedUsersResponse,
+  OnboardUserParams,
+  OnboardUserResponse,
+} from '../types';
 
 const generateIdempotencyKey = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -79,5 +89,86 @@ export class UsersResource {
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
+  }
+
+  /**
+   * List the users YOUR account onboarded, newest first. Strictly scoped to
+   * your own onboards — other accounts' users never appear.
+   */
+  async list(params: ListOnboardedUsersParams = {}): Promise<ListOnboardedUsersResponse> {
+    const query = new URLSearchParams();
+    if (params.limit !== undefined) { query.set('limit', String(params.limit)); }
+    if (params.cursor) { query.set('cursor', params.cursor); }
+    const qs = query.toString();
+    return this.client._request<ListOnboardedUsersResponse>('GET', `/public/v1/users${qs ? `?${qs}` : ''}`);
+  }
+
+  /**
+   * Cross-chain funding addresses for a user you onboarded. Send USDC on a
+   * listed source chain (e.g. Solana — see `solanaUsdc`) to its address and
+   * Unifold bridges it into the user's Lofty Algorand wallet as USDC.
+   *
+   * Addresses are stable per user, so cache-friendly. Only users onboarded by
+   * YOUR account resolve; anything else is 404 `user_not_found`. Send exactly
+   * the token/network a wallet entry names — wrong tokens or networks may be
+   * unrecoverable.
+   */
+  async getDepositAddresses(userId: string): Promise<GetDepositAddressesResponse> {
+    if (!String(userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    return this.client._request<GetDepositAddressesResponse>(
+      'GET',
+      `/public/v1/users/deposit-addresses?userId=${encodeURIComponent(userId)}`,
+    );
+  }
+
+  /**
+   * Mint an API key that ACTS AS a user you onboarded, so you can trade and
+   * manage funds on their behalf. Works immediately — even if the user has
+   * never signed in and still holds their temporary password.
+   *
+   * The returned `key` is shown **exactly once**; store it securely, Lofty
+   * cannot recover it. Trading is enabled by default — pass
+   * `tradingEnabled: false` for a read-only key. Users are capped at 2 active
+   * keys (409 `too_many_active_keys`); revoke one first.
+   */
+  async createApiKey(params: CreateUserApiKeyParams, idempotencyKey?: string): Promise<CreateUserApiKeyResponse> {
+    if (!String(params?.userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    return this.client._request<CreateUserApiKeyResponse>('POST', '/public/v1/users/api-keys', {
+      body: {
+        userId: params.userId,
+        name: params.name,
+        tradingEnabled: params.tradingEnabled,
+      },
+      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+    });
+  }
+
+  /** List an onboarded user's active API keys. Secrets are never returned. */
+  async listApiKeys(userId: string): Promise<ListUserApiKeysResponse> {
+    if (!String(userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    return this.client._request<ListUserApiKeysResponse>(
+      'GET',
+      `/public/v1/users/api-keys?userId=${encodeURIComponent(userId)}`,
+    );
+  }
+
+  /** Revoke one of an onboarded user's API keys. Takes effect immediately. */
+  async revokeApiKey(userId: string, keyId: string): Promise<RevokeUserApiKeyResponse> {
+    if (!String(userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    if (!String(keyId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'keyId is required.', field: 'keyId' });
+    }
+    return this.client._request<RevokeUserApiKeyResponse>(
+      'DELETE',
+      `/public/v1/users/api-keys?userId=${encodeURIComponent(userId)}&keyId=${encodeURIComponent(keyId)}`,
+    );
   }
 }
