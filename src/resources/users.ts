@@ -1,7 +1,11 @@
 import type { LoftyClient } from '../client';
 import { LoftyError } from '../errors';
 import type {
+  CreateUserApiKeyParams,
+  CreateUserApiKeyResponse,
   GetDepositAddressesResponse,
+  ListUserApiKeysResponse,
+  RevokeUserApiKeyResponse,
   ListOnboardedUsersParams,
   ListOnboardedUsersResponse,
   OnboardUserParams,
@@ -116,6 +120,55 @@ export class UsersResource {
     return this.client._request<GetDepositAddressesResponse>(
       'GET',
       `/public/v1/users/deposit-addresses?userId=${encodeURIComponent(userId)}`,
+    );
+  }
+
+  /**
+   * Mint an API key that ACTS AS a user you onboarded, so you can trade and
+   * manage funds on their behalf. Works immediately — even if the user has
+   * never signed in and still holds their temporary password.
+   *
+   * The returned `key` is shown **exactly once**; store it securely, Lofty
+   * cannot recover it. Trading is enabled by default — pass
+   * `tradingEnabled: false` for a read-only key. Users are capped at 2 active
+   * keys (409 `too_many_active_keys`); revoke one first.
+   */
+  async createApiKey(params: CreateUserApiKeyParams, idempotencyKey?: string): Promise<CreateUserApiKeyResponse> {
+    if (!String(params?.userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    return this.client._request<CreateUserApiKeyResponse>('POST', '/public/v1/users/api-keys', {
+      body: {
+        userId: params.userId,
+        name: params.name,
+        tradingEnabled: params.tradingEnabled,
+      },
+      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+    });
+  }
+
+  /** List an onboarded user's active API keys. Secrets are never returned. */
+  async listApiKeys(userId: string): Promise<ListUserApiKeysResponse> {
+    if (!String(userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    return this.client._request<ListUserApiKeysResponse>(
+      'GET',
+      `/public/v1/users/api-keys?userId=${encodeURIComponent(userId)}`,
+    );
+  }
+
+  /** Revoke one of an onboarded user's API keys. Takes effect immediately. */
+  async revokeApiKey(userId: string, keyId: string): Promise<RevokeUserApiKeyResponse> {
+    if (!String(userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    if (!String(keyId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'keyId is required.', field: 'keyId' });
+    }
+    return this.client._request<RevokeUserApiKeyResponse>(
+      'DELETE',
+      `/public/v1/users/api-keys?userId=${encodeURIComponent(userId)}&keyId=${encodeURIComponent(keyId)}`,
     );
   }
 }

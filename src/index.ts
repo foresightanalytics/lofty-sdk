@@ -72,6 +72,11 @@ export type {
   ListOnboardedUsersResponse,
   DepositAddressEntry,
   GetDepositAddressesResponse,
+  CreateUserApiKeyParams,
+  CreateUserApiKeyResponse,
+  UserApiKeySummary,
+  ListUserApiKeysResponse,
+  RevokeUserApiKeyResponse,
   OnboardedUser,
   OnboardUserResponse,
   // Account

@@ -881,3 +881,45 @@ export interface GetDepositAddressesResponse {
     note: string;
   };
 }
+
+export interface CreateUserApiKeyParams {
+  /** A user YOUR account onboarded. */
+  userId: string;
+  /** Label shown in key listings (default `partner-managed`). */
+  name?: string;
+  /**
+   * Whether the key may place orders and move funds. Defaults to `true` — a
+   * partner key exists to act for the user. Pass `false` for a read-only key.
+   */
+  tradingEnabled?: boolean;
+}
+
+export interface UserApiKeySummary {
+  keyId: string;
+  name: string;
+  /** Non-secret prefix, for matching a key you already hold. */
+  prefix: string;
+  mode: 'live' | 'test';
+  tradingEnabled: boolean;
+  createdAt: number;
+  lastUsedAt?: number | null;
+  /** True when your account minted this key; false if the user made it. */
+  partnerManaged?: boolean;
+}
+
+export interface CreateUserApiKeyResponse {
+  user: { userId: string; email: string; };
+  apiKey: UserApiKeySummary;
+  /** The secret. Returned EXACTLY ONCE — Lofty cannot recover it. */
+  key: string;
+}
+
+export interface ListUserApiKeysResponse {
+  user: { userId: string; email: string; };
+  apiKeys: UserApiKeySummary[];
+}
+
+export interface RevokeUserApiKeyResponse {
+  keyId: string;
+  revoked: boolean;
+}
