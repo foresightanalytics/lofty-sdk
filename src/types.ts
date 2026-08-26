@@ -834,3 +834,50 @@ export interface OnboardUserResponse {
   temporaryPassword?: string;
   mustChangePasswordOnFirstLogin: true;
 }
+
+export interface OnboardedUserSummary {
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  onboardedAt: number;
+  /** The user's Lofty (Algorand) wallet, or null while provisioning. */
+  walletAddress: string | null;
+  verificationStatus: string | null;
+}
+
+export interface ListOnboardedUsersParams {
+  /** Max users per page (1–100, default 50). */
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ListOnboardedUsersResponse {
+  users: OnboardedUserSummary[];
+  nextCursor?: string;
+}
+
+export interface DepositAddressEntry {
+  /** Source chain, e.g. `solana`, `ethereum`. */
+  chainType: string;
+  address: string;
+}
+
+export interface GetDepositAddressesResponse {
+  user: { userId: string; email: string; };
+  /** Where bridged funds land — the user's own Lofty wallet. Cross-check it. */
+  destination: {
+    chainType: 'algorand';
+    address: string;
+    tokenSymbol: 'USDC';
+    note: string;
+  };
+  depositAddresses: DepositAddressEntry[];
+  /** Convenience block when a Solana deposit wallet exists. */
+  solanaUsdc?: {
+    address: string;
+    /** Canonical USDC mint on Solana mainnet. Send USDC (SPL) only. */
+    tokenMint: string;
+    note: string;
+  };
+}

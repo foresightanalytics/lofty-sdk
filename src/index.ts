@@ -67,6 +67,11 @@ export type {
   CancelRecurringPlanResponse,
   // Partner user onboarding (restricted)
   OnboardUserParams,
+  OnboardedUserSummary,
+  ListOnboardedUsersParams,
+  ListOnboardedUsersResponse,
+  DepositAddressEntry,
+  GetDepositAddressesResponse,
   OnboardedUser,
   OnboardUserResponse,
   // Account

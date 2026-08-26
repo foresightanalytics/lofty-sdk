@@ -1,6 +1,12 @@
 import type { LoftyClient } from '../client';
 import { LoftyError } from '../errors';
-import type { OnboardUserParams, OnboardUserResponse } from '../types';
+import type {
+  GetDepositAddressesResponse,
+  ListOnboardedUsersParams,
+  ListOnboardedUsersResponse,
+  OnboardUserParams,
+  OnboardUserResponse,
+} from '../types';
 
 const generateIdempotencyKey = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -79,5 +85,37 @@ export class UsersResource {
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
+  }
+
+  /**
+   * List the users YOUR account onboarded, newest first. Strictly scoped to
+   * your own onboards — other accounts' users never appear.
+   */
+  async list(params: ListOnboardedUsersParams = {}): Promise<ListOnboardedUsersResponse> {
+    const query = new URLSearchParams();
+    if (params.limit !== undefined) { query.set('limit', String(params.limit)); }
+    if (params.cursor) { query.set('cursor', params.cursor); }
+    const qs = query.toString();
+    return this.client._request<ListOnboardedUsersResponse>('GET', `/public/v1/users${qs ? `?${qs}` : ''}`);
+  }
+
+  /**
+   * Cross-chain funding addresses for a user you onboarded. Send USDC on a
+   * listed source chain (e.g. Solana — see `solanaUsdc`) to its address and
+   * Unifold bridges it into the user's Lofty Algorand wallet as USDC.
+   *
+   * Addresses are stable per user, so cache-friendly. Only users onboarded by
+   * YOUR account resolve; anything else is 404 `user_not_found`. Send exactly
+   * the token/network a wallet entry names — wrong tokens or networks may be
+   * unrecoverable.
+   */
+  async getDepositAddresses(userId: string): Promise<GetDepositAddressesResponse> {
+    if (!String(userId ?? '').trim()) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'userId is required.', field: 'userId' });
+    }
+    return this.client._request<GetDepositAddressesResponse>(
+      'GET',
+      `/public/v1/users/deposit-addresses?userId=${encodeURIComponent(userId)}`,
+    );
   }
 }
