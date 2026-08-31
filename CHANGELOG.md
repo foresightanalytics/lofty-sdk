@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `orders.create()` accepted quantity grid on fractional properties is now `ORDER_STEP` = 0.0001,
+  matching the API. 0.1025 is sent instead of rejected locally. The order minimum is unchanged and
+  now named `MIN_ORDER_QUANTITY` (0.01 tokens), alongside the $1 notional minimum.
+
 ## 0.5.3
 
 - Internal: extends the Lofty-arranged partner integration surface.

@@ -50,8 +50,9 @@ export interface PropertySummary {
   id: string;
   /**
    * Decimal places the property's Algorand asset supports, and therefore the smallest tradeable slice.
-   * `0` or absent means whole shares only - this is every property today. When `assetDecimals > 0` the
-   * property accepts fractional quantities; see `CreateOrderParams.quantity`.
+   * `0` or absent means whole shares only. When `assetDecimals > 0` the property accepts fractional
+   * quantities; see `CreateOrderParams.quantity`. Both kinds of property are live, so read this field
+   * rather than assuming either one.
    */
   assetDecimals?: number;
   /**
@@ -228,8 +229,8 @@ export interface CreateOrderParams {
   /**
    * Number of tokens.
    * - `assetDecimals: 0`: WHOLE tokens only.
-   * - `assetDecimals > 0` (fractional properties): multiples of `ORDER_STEP` (0.01), and the
-   *   order must be worth at least `MIN_ORDER_NOTIONAL_USD` ($1.00).
+   * - `assetDecimals > 0` (fractional properties): multiples of `ORDER_STEP` (0.0001), at least
+   *   `MIN_ORDER_QUANTITY` (0.01) tokens, and worth at least `MIN_ORDER_NOTIONAL_USD` ($1.00).
    * Read `assetDecimals` from the property to know which rule applies.
    */
   quantity: number;
@@ -722,10 +723,14 @@ export interface GetLpRewardsProgramResponse {
 // ─── Quantity granularity ─────────────────────────────────────────────────────
 
 /**
- * Smallest quantity increment the order book accepts for a property with `assetDecimals > 0`.
+ * The GRID a quantity must sit on for a property with `assetDecimals > 0`: every order quantity is a
+ * whole multiple of it. It is not the smallest order — that is `MIN_ORDER_QUANTITY`, 100 steps up.
  * Properties with `assetDecimals: 0` accept whole tokens only.
  */
-export const ORDER_STEP = 0.01;
+export const ORDER_STEP = 0.0001;
+
+/** Smallest order quantity, in tokens, for a property with `assetDecimals > 0`. */
+export const MIN_ORDER_QUANTITY = 0.01;
 
 /** Minimum order value in USD for a property with `assetDecimals > 0`. */
 export const MIN_ORDER_NOTIONAL_USD = 1.0;

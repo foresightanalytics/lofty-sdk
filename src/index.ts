@@ -10,7 +10,7 @@ export {
 export type { LoftyErrorCode, LoftyErrorBody } from './errors';
 
 // Value exports (not types): quantity granularity constants.
-export { ORDER_STEP, MIN_ORDER_NOTIONAL_USD, REFERENCE_WINDOW_CHOICES_DAYS } from './types';
+export { ORDER_STEP, MIN_ORDER_QUANTITY, MIN_ORDER_NOTIONAL_USD, REFERENCE_WINDOW_CHOICES_DAYS } from './types';
 
 export type {
   // AMM
