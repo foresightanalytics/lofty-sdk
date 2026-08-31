@@ -19,8 +19,8 @@ const TOKEN_UNITS_PER_STEP = Math.round(ORDER_STEP * TOKEN_UNITS_PER_TOKEN);
 
 /**
  * True when `quantity` sits on the book's grid. Compared as integer token units rather than as
- * `quantity / ORDER_STEP`, whose float error grows with the quantity: 8918 / 0.0001 is
- * 89179999.99999999, which a tolerance on the ratio would reject.
+ * `quantity / ORDER_STEP`, whose float error grows with the quantity: 839.06 / 0.0001 is
+ * 8390599.999999998, which a tolerance on the ratio would reject.
  */
 const isOnOrderGrid = (quantity: number): boolean => {
   const units = Math.round(quantity * TOKEN_UNITS_PER_TOKEN);
