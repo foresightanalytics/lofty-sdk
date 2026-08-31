@@ -1,6 +1,6 @@
 import type { LoftyClient } from '../client';
 import { LoftyError, requirePathParam } from '../errors';
-import { ORDER_STEP, REFERENCE_WINDOW_CHOICES_DAYS } from '../types';
+import { MIN_ORDER_QUANTITY, ORDER_STEP, REFERENCE_WINDOW_CHOICES_DAYS } from '../types';
 import type {
   CreateOrderParams,
   CreateOrderResponse,
@@ -12,6 +12,20 @@ import type {
 } from '../types';
 
 const TRIGGER_ORDER_TYPES = ['stop_loss', 'stop_limit', 'trailing_stop'];
+
+/** Property assets carry at most 6 decimals, so a quantity is an exact integer count of 1e-6 tokens. */
+const TOKEN_UNITS_PER_TOKEN = 1_000_000;
+const TOKEN_UNITS_PER_STEP = Math.round(ORDER_STEP * TOKEN_UNITS_PER_TOKEN);
+
+/**
+ * True when `quantity` sits on the book's grid. Compared as integer token units rather than as
+ * `quantity / ORDER_STEP`, whose float error grows with the quantity: 839.06 / 0.0001 is
+ * 8390599.999999998, which a tolerance on the ratio would reject.
+ */
+const isOnOrderGrid = (quantity: number): boolean => {
+  const units = Math.round(quantity * TOKEN_UNITS_PER_TOKEN);
+  return Number.isSafeInteger(units) && units % TOKEN_UNITS_PER_STEP === 0;
+};
 
 const generateIdempotencyKey = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -53,7 +67,8 @@ export class OrdersResource {
    */
   async create(params: CreateOrderParams, idempotencyKey?: string): Promise<CreateOrderResponse> {
     // Fail locally on a quantity the book cannot represent, rather than on a round trip. Whole-share
-    // properties (assetDecimals 0) are unaffected: an integer is always a multiple of ORDER_STEP.
+    // properties (assetDecimals 0) are unaffected: an integer is always a multiple of ORDER_STEP, and
+    // the server applies the whole-share rule for them.
     //
     // Coerced with Number() rather than checked with typeof: an untyped JS caller passing "5" was
     // accepted before this guard existed (the API parses the body value), and must keep working.
@@ -65,13 +80,19 @@ export class OrdersResource {
         field: 'quantity',
       });
     }
-    const steps = quantity / ORDER_STEP;
-    if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+    if (!isOnOrderGrid(quantity)) {
       throw new LoftyError(400, {
         code: 'invalid_field',
         message: `quantity must be a multiple of ${ORDER_STEP}.`,
         field: 'quantity',
         hint: 'Properties with assetDecimals 0 accept whole shares only; check the property\'s assetDecimals.',
+      });
+    }
+    if (quantity < MIN_ORDER_QUANTITY) {
+      throw new LoftyError(400, {
+        code: 'invalid_field',
+        message: `quantity must be at least ${MIN_ORDER_QUANTITY}.`,
+        field: 'quantity',
       });
     }
     // Trigger orders: fail locally on shapes the API will reject, so integrators see
