@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fractional order quantities: 0.0001 grid
+
+- `orders.create()` no longer rejects API-valid fractional quantities. The local guard now matches
+  the live API contract: quantities must be a multiple of `ORDER_STEP` (now **0.0001**, was 0.01)
+  and at least `MIN_ORDER_QUANTITY` (**0.01** tokens, new export). A value like `0.1025` is sent to
+  the server instead of failing locally. Per-property rules (whole shares when `assetDecimals: 0`,
+  the $1 notional minimum) are unchanged and stay enforced server-side.
+- Docs/types no longer claim every property is zero-decimal.
+- Added regression tests (`npm test`) covering 0.1025, 0.01, off-grid, and below-minimum values.
+
 ## 0.5.3
 
 - Internal: extends the Lofty-arranged partner integration surface.

@@ -20,7 +20,8 @@
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "npm run build && node --test test/"
   },
   "engines": {
     "node": ">=18"

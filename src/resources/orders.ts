@@ -1,6 +1,6 @@
 import type { LoftyClient } from '../client';
 import { LoftyError, requirePathParam } from '../errors';
-import { ORDER_STEP, REFERENCE_WINDOW_CHOICES_DAYS } from '../types';
+import { MIN_ORDER_QUANTITY, ORDER_STEP, REFERENCE_WINDOW_CHOICES_DAYS } from '../types';
 import type {
   CreateOrderParams,
   CreateOrderResponse,
@@ -52,8 +52,13 @@ export class OrdersResource {
    * });
    */
   async create(params: CreateOrderParams, idempotencyKey?: string): Promise<CreateOrderResponse> {
-    // Fail locally on a quantity the book cannot represent, rather than on a round trip. Whole-share
-    // properties (assetDecimals 0) are unaffected: an integer is always a multiple of ORDER_STEP.
+    // Fail locally only on a quantity NO property can accept, rather than on a round trip. The
+    // client does not know the property's assetDecimals here, so it checks the union of the
+    // per-property rules and leaves the rest to the server:
+    //  - the finest grid any property trades on is ORDER_STEP (0.0001, fractional properties);
+    //    whole-share properties (assetDecimals 0) are stricter and enforced server-side.
+    //  - no property accepts an order below MIN_ORDER_QUANTITY (0.01) tokens: fractional
+    //    properties floor there, whole-share properties floor at 1.
     //
     // Coerced with Number() rather than checked with typeof: an untyped JS caller passing "5" was
     // accepted before this guard existed (the API parses the body value), and must keep working.
@@ -66,12 +71,20 @@ export class OrdersResource {
       });
     }
     const steps = quantity / ORDER_STEP;
-    if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+    if (Math.abs(steps - Math.round(steps)) > 1e-6) {
       throw new LoftyError(400, {
         code: 'invalid_field',
         message: `quantity must be a multiple of ${ORDER_STEP}.`,
         field: 'quantity',
-        hint: 'Properties with assetDecimals 0 accept whole shares only; check the property\'s assetDecimals.',
+        hint: 'Fractional properties (assetDecimals > 0) trade on a 0.0001 grid; properties with assetDecimals 0 accept whole shares only.',
+      });
+    }
+    if (quantity < MIN_ORDER_QUANTITY) {
+      throw new LoftyError(400, {
+        code: 'invalid_field',
+        message: `quantity must be at least ${MIN_ORDER_QUANTITY}.`,
+        field: 'quantity',
+        hint: 'The API rejects orders below 0.01 tokens on every property.',
       });
     }
     // Trigger orders: fail locally on shapes the API will reject, so integrators see

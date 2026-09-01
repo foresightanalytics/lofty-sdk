@@ -359,7 +359,7 @@ const { orderId } = await lofty.orders.create({
 | `propertyId` | `string` | yes | Lofty property ID |
 | `direction` | `'buy' \| 'sell'` | yes | Order side |
 | `price` | `number` | for limit/market | Price per token in USD (min $0.01). Optional on trigger orders (normalized server-side) |
-| `quantity` | `number` | yes | Number of tokens — whole shares for `assetDecimals: 0` properties; multiples of 0.01 (min $1 notional) for fractional ones |
+| `quantity` | `number` | yes | Number of tokens — whole shares for `assetDecimals: 0` properties; for fractional ones, multiples of 0.0001, minimum 0.01 tokens and $1 notional |
 | `expireAt` | `number` | no | Unix ms expiry (min 29 days from now, default 30 days) |
 | `orderType` | `string` | no | `limit` (default), `market`, or — fractional properties only — `stop_loss`, `stop_limit`, `trailing_stop` |
 | `triggerPrice` | `number` | for stop types | USD/token reference price that arms the order |
