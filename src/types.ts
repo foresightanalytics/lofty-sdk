@@ -406,6 +406,90 @@ export interface AccountBalance {
   giftBalance: number;
 }
 
+export type WithdrawSource = 'rent' | 'wallet';
+export type WithdrawDestination = 'bank' | 'usdc';
+
+export type WithdrawParams = {
+  /** `rent` = rental-income ledger. `wallet` = Lofty USDC wallet cash. */
+  source: WithdrawSource;
+  /** `bank` = ACH to a linked US bank. `usdc` = Algorand USDC only. */
+  destination: WithdrawDestination;
+  /** USD amount. Bank minimum $1; USDC minimum $0.05. */
+  amount: number;
+  /** Saved bank id from `listWithdrawals().destinations.bankAccounts`, or `legacy`. */
+  bankAccountId?: string;
+  /**
+   * Algorand address to receive USDC. Must be opted into USDC. Omit to use the
+   * account's saved receiving wallet (wallet-cash) or Lofty wallet (rent).
+   */
+  destinationAddress?: string;
+};
+
+export type WithdrawResponse = {
+  amount: number;
+  source: WithdrawSource;
+  destination: WithdrawDestination;
+  destinationAddress?: string;
+  bankAccountId?: string;
+};
+
+export type WithdrawalRecord = {
+  id: string;
+  createdAt: number;
+  updatedAt?: number;
+  amount: number;
+  feeAmount?: number;
+  netAmount?: number;
+  status: string;
+  paymentType?: string;
+  paymentSubtype?: string;
+  transferMethod?: string;
+};
+
+export type BankAccountSummary = {
+  id: string;
+  nickname?: string;
+  last4: string;
+  routingLast4: string;
+  accountType?: string;
+};
+
+export type WithdrawalDestinations = {
+  bankAccounts: BankAccountSummary[];
+  usdcReceivingWallet: string | null;
+  loftyWalletAddress: string | null;
+};
+
+export type PayoutMethod = {
+  id: WithdrawDestination;
+  sources: WithdrawSource[];
+  minimum: number;
+  network: string;
+  note: string;
+};
+
+export type ListWithdrawalsParams = {
+  limit?: number;
+  status?: string;
+};
+
+export type ListWithdrawalsResponse = {
+  withdrawals: WithdrawalRecord[];
+  destinations: WithdrawalDestinations;
+  methods: PayoutMethod[];
+};
+
+export type AddBankAccountParams = {
+  achRoutingNumber: string;
+  accountNumber: string;
+  accountType: 'checking' | 'savings';
+  nickname?: string;
+};
+
+export type AddBankAccountResponse = {
+  bankAccount: BankAccountSummary;
+};
+
 // ─── Positions ────────────────────────────────────────────────────────────────
 
 export interface Position {
@@ -830,6 +914,12 @@ export interface OnboardUserParams {
    * credential stops working. Unused temporary passwords expire after 7 days.
    */
   password?: string;
+  /**
+   * Growsurf referral id, slug (`name-id`), or a URL containing `grsf=`.
+   * Qualifying signups credit the partner. Invalid codes are rejected with
+   * 400 `invalid_referral_code`; Growsurf outages do not fail onboarding.
+   */
+  referralCode?: string;
 }
 
 export interface OnboardedUser {
