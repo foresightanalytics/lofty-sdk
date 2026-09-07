@@ -338,6 +338,8 @@ All order methods require **trading enabled** on your API key.
 
 Orders are funded from your Lofty USDC wallet. Ensure you have sufficient balance before placing buy orders.
 
+You can have open limit orders on **multiple properties** at the same time. LP farming on a property needs a two-sided quote (bid and ask). HTTP 409 `order_in_progress` means another create is still in flight for this account, not that you already have a resting order.
+
 #### `.create(params, idempotencyKey?)`
 
 Place a limit order. Returns the `orderId`.
@@ -526,7 +528,50 @@ do {
 } while (cursor);
 ```
 
----
+#### `.listWithdrawals(params?)`
+
+Recent withdrawals plus payout destinations (masked bank last-4, saved USDC wallet, Lofty wallet) and method minimums.
+
+```typescript
+const { withdrawals, destinations, methods } = await lofty.account.listWithdrawals();
+```
+
+USDC payouts are **Algorand only**. Inbound USDC on other chains (Unifold) is `users.getDepositAddresses` for partner-onboarded users.
+
+#### `.addBankAccount(params, idempotencyKey?)`
+
+Link a US bank account for ACH withdrawals. Does not require trading enabled; test keys are allowed.
+
+```typescript
+const { bankAccount } = await lofty.account.addBankAccount({
+  achRoutingNumber: '021000021',
+  accountNumber: '123456789',
+  accountType: 'checking',
+  nickname: 'Payroll',
+});
+```
+
+#### `.withdraw(params, idempotencyKey?)`
+
+Withdraw rental income (`source: 'rent'`) or Lofty wallet cash (`source: 'wallet'`) to a linked bank (`destination: 'bank'`, ACH) or to an Algorand USDC address (`destination: 'usdc'`). Requires trading enabled. Test keys are rejected.
+
+Bank minimum is $1. USDC minimum is $0.05. Pass `destinationAddress` to send USDC to an external Algorand wallet that is opted into USDC. Cross-chain USDC outbound (Circle / other networks) is not available.
+
+```typescript
+await lofty.account.withdraw({
+  source: 'rent',
+  destination: 'bank',
+  amount: 50,
+  bankAccountId: destinations.bankAccounts[0].id,
+});
+
+await lofty.account.withdraw({
+  source: 'wallet',
+  destination: 'usdc',
+  amount: 25,
+  destinationAddress: 'ALGORANDADDRESS...',
+});
+```
 
 ---
 

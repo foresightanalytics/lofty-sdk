@@ -47,7 +47,8 @@ export class UsersResource {
    *
    * Duplicate protection you cannot bypass: an email that already has a Lofty
    * account → 409 `user_already_exists`; an identity (name + address) that
-   * already has one → 409 `identity_already_exists`.
+   * already has one → 409 `identity_already_exists`. Pass `referralCode` to
+   * credit a Growsurf partner on qualifying signups.
    */
   async create(params: OnboardUserParams, idempotencyKey?: string): Promise<OnboardUserResponse> {
     for (const field of REQUIRED) {
@@ -71,6 +72,16 @@ export class UsersResource {
     if (params.password !== undefined && String(params.password).length < 10) {
       throw new LoftyError(400, { code: 'invalid_password', message: 'password must be at least 10 characters.', field: 'password' });
     }
+    if (params.referralCode !== undefined) {
+      const referralCode = String(params.referralCode).trim();
+      if (!referralCode || referralCode.length > 500 || /\s/.test(referralCode)) {
+        throw new LoftyError(400, {
+          code: 'invalid_referral_code',
+          message: 'referralCode must be a Growsurf id, slug, or URL containing grsf=.',
+          field: 'referralCode',
+        });
+      }
+    }
 
     return this.client._request<OnboardUserResponse>('POST', '/public/v1/users', {
       body: {
@@ -86,6 +97,7 @@ export class UsersResource {
         country: params.country,
         ssn: params.ssn,
         password: params.password,
+        referralCode: params.referralCode,
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });

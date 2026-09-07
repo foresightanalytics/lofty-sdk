@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0
+
+### Withdrawals
+
+- `account.listWithdrawals()`, `account.withdraw()`, and `account.addBankAccount()` talk to `GET/POST /public/v1/account/withdrawals`.
+- Sources: rental income or Lofty wallet cash. Destinations: ACH to a linked US bank, or USDC on **Algorand**. Cross-chain USDC outbound is not available; inbound other chains remain `users.getDepositAddresses`.
+- `addBankAccount` does not require trading enabled and allows test keys. Payouts still require a live, trading-enabled key.
+- An unknown `bankAccountId` is rejected (`unknown_bank_account`) instead of paying the legacy bank slot.
+- Local guards: amount > 0, Algorand `destinationAddress` shape, bank routing/account/type.
+
+### Orders
+
+- Documented that open limit orders are allowed on many properties at once. `order_in_progress` is an in-flight create lock, not a resting-order cap.
+
+### Partner onboarding
+
+- `users.create()` accepts optional `referralCode` (Growsurf id, slug, or `grsf=` URL).
+
 ## 0.6.0
 
 ### Fractional order quantities: 0.0001 grid
