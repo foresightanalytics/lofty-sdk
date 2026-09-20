@@ -613,7 +613,7 @@ Get a single AMM pool by its numeric ID. Same pause behavior as `.listPools()`.
 
 ```typescript
 const { pool } = await lofty.amm.getPool(123);
-console.log(`Liquidity: ${pool.liquidityUnits?.base} tokens / $${pool.liquidityUnits?.quote} USDC`);
+console.log(`Liquidity: ${pool.liquidity.base} tokens / $${pool.liquidity.quote} USDC`);
 ```
 
 #### `.getQuote(params)`
@@ -879,68 +879,3 @@ const result2 = await lofty.orders.create(params, key); // identical to result
 ```
 
 Keys are deduplicated for 24 hours.
-
-
-### V2 pool deposits and withdrawals (requires updated public API)
-
-`amm.deposit()` and `amm.withdraw()` operate on pool liquidity from your Lofty wallet.
-They differ from `account.withdraw()`, which transfers wallet funds out of your account.
-These methods only support V2 pools. Amounts and protection limits use whole units with
-at most six decimals. Use a live key with trading enabled to execute.
-
-Always request a fresh preview and review its penalty, net output, LP amount and hold:
-
-```ts
-const preview = await lofty.amm.getLiquidityQuote({
-  poolId: 9000000001800001,
-  operation: 'withdraw',
-  side: 'quote', // 'base' withdraws property tokens
-  amount: 1, // GROSS asset amount before penalty; not LP tokens
-});
-console.log(preview.penalty, preview.netAssetAmount, preview.lpTokenAmount);
-console.log(preview.withdrawalAvailableAt, preview.withdrawalHoldSeconds);
-if (!preview.poolChecksPassed) throw new Error('Pool checks do not permit this withdrawal');
-
-// Execute only after approval. Exact preview limits reject adverse movement.
-// Choose a unique key for each operation and retain it across retries.
-const result = await lofty.amm.withdraw({
-  poolId: preview.poolId, side: preview.side, amount: preview.amount,
-  minAssetOut: preview.netAssetAmount!, maxLpBurn: preview.lpTokenAmount,
-}, savedIdempotencyKey);
-const { swap: status } = await lofty.amm.getLiquidityStatus(result.batchId);
-// Submission is not settlement. Poll until settled or failed; preserve batchId.
-```
-
-For deposits, preview with `operation: 'deposit'`, then call `amm.deposit()` with
-`amount`, `side`, `poolId`, and `minLpOut: preview.lpTokenAmount`. The pool enforces
-minimum LP output. Withdrawals enforce both minimum net asset output and maximum LP
-burn on-chain. A stricter limit can reject a changed quote.
-
-The penalty stays in the pool and reduces withdrawal output. `positionBoxFundingAlgo`
-is only one part of ALGO costs, not the total network/opt-in cost. Pool checks do not
-verify all wallet balances, KYC, or ALGO costs. The existing executor checks those.
-A deposit can reset the withdrawal hold. Quotes can change before execution.
-After a timeout, inspect the batch and reuse the original idempotency key. Do not
-blindly submit a second operation with a new key.
-
-### V2 reports and units
-
-- `pool.pmmVersion` identifies V2. `liquidityUnits` gives whole-unit reserves.
-  Existing `liquidity.base` and `liquidity.quote` retain their raw units.
-- V2 buy quotes already include base-token fees. `includedFees` shows these in
-  base tokens. Do not add them to the USDC payment again. Use `totalDebit` for buys
-  and `netProceeds` for sells; ALGO costs remain additional.
-- `account.getTrades()` includes confirmed V2 swaps from the Lofty wallet.
-  `poolFees` identifies each fee asset and whole-unit amount. `usdcAmount` is the
-  actual wallet payment or receipt, and `price` is that amount divided by shares.
-- `account.getLpPositions()` identifies the correct property and V2 ownership.
-  `v2Position` reports compounded balances in whole units. Legacy counters keep
-  their existing units.
-- Use `orders.get(id).order.state` for settlement. The raw book `status` can remain
-  `cancelled` when the pool matched it. Confirmed `poolFills` carry transaction IDs.
-  Partial pool matches close the original book row and can create a new remainder.
-  Historical matches without an exact order reference report
-  `pool_settlement_unconfirmed`; the API does not guess a fill from nearby trades.
-
-Deploy the corresponding backend changes before using the new liquidity methods.
-This release does not change order matching, pool contracts, or the web buy/sell UI.

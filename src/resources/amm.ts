@@ -1,11 +1,6 @@
 import type { LoftyClient } from '../client';
 import { requirePathParam } from '../errors';
 import type {
-  LiquidityQuoteParams,
-  LiquidityQuote,
-  PoolDepositParams,
-  PoolWithdrawParams,
-  LiquidityExecutionResponse,
   ListAmmPoolsResponse,
   GetAmmPoolResponse,
   GetQuoteParams,
@@ -14,13 +9,6 @@ import type {
   ExecuteSwapResponse,
   GetSwapStatusResponse,
 } from '../types';
-
-const requireLiquidityAmount = (value: number, name: string): void => {
-  const micro = Math.round(value * 1_000_000);
-  if (!Number.isFinite(value) || value <= 0 || !Number.isSafeInteger(micro) || micro / 1_000_000 !== value) {
-    throw new Error(`${name} must be positive, have at most six decimals, and fit safe integer microunits.`);
-  }
-};
 
 const generateIdempotencyKey = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -31,46 +19,6 @@ const generateIdempotencyKey = (): string => {
 
 export class AmmResource {
   constructor(private readonly client: LoftyClient) {}
-
-  /** Preview a V2 pool deposit or withdrawal. Amounts use whole asset/LP units.
-   * Withdrawal amount is BEFORE penalty. No funds move through this method.
-   * A passing pool preview does not guarantee wallet balance, KYC or ALGO funding.
-   */
-  async getLiquidityQuote(params: LiquidityQuoteParams): Promise<LiquidityQuote> {
-    return this.client._request('GET', '/public/v1/amm/liquidity/quote', { params: { ...params } });
-  }
-
-  /** Deposit base tokens or USDC into a V2 pool from your Lofty wallet.
-   * Set minLpOut from a fresh preview. Reuse your idempotency key after a timeout.
-   */
-  async deposit(params: PoolDepositParams, idempotencyKey?: string): Promise<LiquidityExecutionResponse> {
-    requireLiquidityAmount(params.amount, 'amount');
-    requireLiquidityAmount(params.minLpOut, 'minLpOut');
-    return this.client._request('POST', '/public/v1/amm/deposit', {
-      body: { poolId: params.poolId, side: params.side, amount: params.amount, minLpOut: params.minLpOut },
-      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
-    });
-  }
-
-  /** Withdraw gross asset amount from your V2 pool position to your Lofty wallet.
-   * The pool deducts the previewed penalty from this amount. Both protections
-   * are mandatory. This is separate from account.withdraw(), which sends wallet funds.
-   */
-  async withdraw(params: PoolWithdrawParams, idempotencyKey?: string): Promise<LiquidityExecutionResponse> {
-    requireLiquidityAmount(params.amount, 'amount');
-    requireLiquidityAmount(params.minAssetOut, 'minAssetOut');
-    requireLiquidityAmount(params.maxLpBurn, 'maxLpBurn');
-    return this.client._request('POST', '/public/v1/amm/withdraw', {
-      body: { poolId: params.poolId, side: params.side, amount: params.amount,
-        minAssetOut: params.minAssetOut, maxLpBurn: params.maxLpBurn },
-      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
-    });
-  }
-
-  /** Tracks deposits/withdrawals through the same authenticated batch status endpoint as swaps. */
-  async getLiquidityStatus(batchId: string): Promise<GetSwapStatusResponse> {
-    return this.getSwapStatus(batchId);
-  }
 
   /**
    * List all active AMM pools.
@@ -129,8 +77,8 @@ export class AmmResource {
    *
    * For buys, `maxUsdcAmount` is required — it sets your slippage tolerance.
    * Get the expected cost first with `getQuote()`, then add a small buffer.
-   * V2 buy quotes already include base-denominated fees. Do not add includedFees
-   * again. Use totalDebit for expected USDC spend. ALGO costs are additional.
+   * The cap covers the pool payment (`quote.usdcAmount`); swap fees are charged
+   * on top, so ensure your wallet balance covers `quote.totalDebit`.
    *
    * @example
    * // Buy 10 tokens, willing to pay up to $540
@@ -149,7 +97,7 @@ export class AmmResource {
    *   poolId: 123,
    *   side: 'sell',
    *   tokenAmount: 5,
-   *   minUsdcAmount: Math.floor(quote.netProceeds! * 0.98 * 1e6) / 1e6, // 2% slippage tolerance
+   *   minUsdcAmount: quote.usdcAmount * 0.98, // 2% slippage tolerance
    * });
    */
   async executeSwap(params: ExecuteSwapParams, idempotencyKey?: string): Promise<ExecuteSwapResponse> {
