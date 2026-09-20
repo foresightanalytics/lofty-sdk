@@ -13,14 +13,6 @@ export type { LoftyErrorCode, LoftyErrorBody } from './errors';
 export { ORDER_STEP, MIN_ORDER_QUANTITY, MIN_ORDER_NOTIONAL_USD, REFERENCE_WINDOW_CHOICES_DAYS } from './types';
 
 export type {
-  V2PositionSide,
-  LiquidityQuoteParams,
-  LiquidityQuote,
-  PoolDepositParams,
-  PoolWithdrawParams,
-  LiquidityExecutionResponse,
-  SwapStatus,
-  GetSwapStatusResponse,
   // AMM
   AmmAsset,
   AmmPoolFees,

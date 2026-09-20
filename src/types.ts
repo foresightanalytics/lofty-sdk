@@ -166,18 +166,6 @@ export interface GetOrderBookResponse {
 // ─── Trades ───────────────────────────────────────────────────────────────────
 
 export interface Trade {
-  source?: 'amm';
-  pmmVersion?: 'v2';
-  poolId?: number;
-  confirmedBlock?: number;
-  /** Actual USDC wallet movement. Pool trade price uses this amount / quantity. */
-  usdcAmount?: number;
-  poolFees?: {
-    maintainer: { amount: number; assetId: number };
-    lp: { amount: number; assetId: number };
-    retainedMaintainer: number;
-    includedInPayment: boolean;
-  };
   [key: string]: unknown;
 }
 
@@ -322,7 +310,6 @@ export type OrderState =
   | 'partially_filled'
   | 'filled'
   | 'cancelled'
-  | 'rejected'
   | 'pending';
 
 /** Why a terminal order ended. Present only on terminal orders. */
@@ -331,16 +318,9 @@ export type OrderStatusReason =
   | 'user_cancel'
   | 'insufficient_funds'
   | 'expired'
-  | 'partial_fill_cancelled'
-  | 'pool_partial_fill'
-  | 'pool_execution_failed'
-  | 'pool_settlement_unconfirmed';
+  | 'partial_fill_cancelled';
 
 export interface Order {
-  /** Confirmed V2 pool fills linked to this exact book order. */
-  poolFills?: Trade[];
-  /** A pool match closed this book row. A remainder may have a separate order ID. */
-  bookOrderClosed?: boolean;
   orderId: string;
   propertyId: string;
   direction: OrderDirection;
@@ -389,7 +369,6 @@ export interface Order {
 export type SwapState = 'pending' | 'settled' | 'failed';
 
 export interface SwapStatus {
-  operation?: 'swap' | 'deposit' | 'withdraw';
   batchId: string;
   /** Normalized lifecycle. Safe to branch on. */
   state: SwapState;
@@ -553,18 +532,6 @@ export interface GetTradesParams {
 }
 
 export interface Trade {
-  source?: 'amm';
-  pmmVersion?: 'v2';
-  poolId?: number;
-  confirmedBlock?: number;
-  /** Actual USDC wallet movement. Pool trade price uses this amount / quantity. */
-  usdcAmount?: number;
-  poolFees?: {
-    maintainer: { amount: number; assetId: number };
-    lp: { amount: number; assetId: number };
-    retainedMaintainer: number;
-    includedInPayment: boolean;
-  };
   tradeId: string;
   propertyId: string;
   direction: 'buy' | 'sell';
@@ -585,9 +552,6 @@ export interface GetTradesResponse {
 // ─── LP Positions ─────────────────────────────────────────────────────────────
 
 export interface LpPosition {
-  pmmVersion?: 'v2';
-  /** V2 compounded position values in whole units. Legacy counters retain their existing units. */
-  v2Position?: { base: V2PositionSide; quote: V2PositionSide };
   propertyId: string;
   poolId: number;
   baseLpTokensHeld: number;
@@ -628,7 +592,7 @@ export interface AmmAsset {
 }
 
 export interface AmmPoolFees {
-  /** LP fee percentage (e.g. 2 = 2%). */
+  /** LP fee rate (e.g. 500 = 0.5%) */
   lp: number;
   /** Platform buy fee rate */
   platformBuy: number;
@@ -639,9 +603,6 @@ export interface AmmPoolFees {
 }
 
 export interface AmmPool {
-  pmmVersion?: 'v1' | 'v2';
-  /** V2 reserves in whole units; legacy liquidity.base/quote remain microunits. */
-  liquidityUnits?: { base: number; quote: number };
   poolId: number;
   propertyId: string;
   active: boolean;
@@ -653,9 +614,9 @@ export interface AmmPool {
   priceLow: number;
   fees: AmmPoolFees;
   liquidity: {
-    /** Base reserve in integer microunits (divide by 1e6 for V2). */
+    /** Base (property token) balance in pool */
     base: number;
-    /** Quote reserve in integer microunits (divide by 1e6). */
+    /** Quote (USDC) balance in pool */
     quote: number;
     baseUSD: number;
     quoteUSD: number;
@@ -699,22 +660,20 @@ export interface GetQuoteByUsdcAmount {
 export type GetQuoteParams = GetQuoteByTokenAmount | GetQuoteByUsdcAmount;
 
 export interface AmmQuote {
-  pmmVersion?: 'v1' | 'v2';
-  source?: 'amm' | 'orderbook';
-  /** V2 buy fees in whole BASE tokens. Already included in usdcAmount; do not add again. */
-  includedFees?: { assetId: number; platform: number; lp: number; total: number };
   poolId: number;
   side: QuoteSide;
   /** Property tokens involved */
   tokenAmount: number;
   /**
-   * Pool payment in USDC. V2 buys include both base fees. Sells are gross before
-   * deductions. Use totalDebit / netProceeds for the expected wallet movement.
+   * The raw AMM pool payment for the swap. This is NOT the full wallet
+   * movement: swap fees are charged separately on top (buys) or out of the
+   * proceeds (sells). Use `totalDebit` (buys) / `netProceeds` (sells) for the
+   * amount that actually hits your wallet.
    */
   usdcAmount: number;
   /**
-   * Additional USDC fees. Added for buys, deducted for sells. V2 buys report zero
-   * here because their native base fees are already embedded; see includedFees.
+   * Swap fee breakdown charged in addition to `usdcAmount` (platform + LP +
+   * operating reserve), computed identically to on-chain execution.
    * Present on API deployments from 2026-07-21 onward.
    */
   fees?: {
@@ -751,14 +710,18 @@ export interface ExecuteSwapParams {
   /**
    * Buys only — REQUIRED. Maximum USDC to spend; slippage cap enforced on-chain.
    * Get the expected cost from `getQuote()` then add a small buffer (e.g. 1–2%).
-   * V2: includes embedded base fees. V1 may charge additional quote fees.
-   * ALGO network/opt-in costs are not included.
+   * NOTE: the cap applies to the POOL PAYMENT (`quote.usdcAmount`), not
+   * `quote.totalDebit` — swap fees are charged on top of it, so your wallet
+   * must cover `totalDebit`, not just this cap.
    */
   maxUsdcAmount?: number;
   /**
-   * Sells only — REQUIRED. V2 enforces minimum NET USDC proceeds on-chain.
-   * Use quote.netProceeds and subtract your tolerance. Legacy V1 protection
-   * remains an API precheck against gross proceeds.
+   * Sells only — REQUIRED. Minimum USDC floor; slippage floor enforced by
+   * the API immediately before execution. Get the quote from `getQuote()`
+   * then subtract your tolerance (e.g. 1–2%). Without it the API rejects the sell.
+   * NOTE: the floor applies to the POOL PAYMENT (`quote.usdcAmount`), not your
+   * net proceeds — swap fees are deducted after, so you receive
+   * `quote.netProceeds`, not the pool payment.
    */
   minUsdcAmount?: number;
 }
@@ -1063,68 +1026,4 @@ export interface ListUserApiKeysResponse {
 export interface RevokeUserApiKeyResponse {
   keyId: string;
   revoked: boolean;
-}
-
-// V2 pool liquidity. All amount fields below use whole units, at most six decimals.
-export interface V2PositionSide {
-  netDeposited: number;
-  currentAmount: number;
-  currentValueUsd: number;
-  depositedUsd: number;
-  withdrawnUsd: number;
-  gainLossUsd: number;
-  gainLossPercent: number | null;
-  wallets: Array<{ wallet: string; lpTokens: number; ownershipPercent: number; currentAmount: number; unlockAt: number | null }>;
-}
-export interface LiquidityQuoteParams {
-  poolId: number;
-  operation: 'deposit' | 'withdraw';
-  side: 'base' | 'quote';
-  /** Whole deposited asset units, or GROSS withdrawal units before penalty. */
-  amount: number;
-}
-export interface LiquidityQuote extends LiquidityQuoteParams {
-  propertyId: string;
-  pmmVersion: 'v2';
-  assetId: number;
-  /** Withheld in the same asset as the withdrawal, not an extra wallet debit. */
-  penalty: number;
-  netAssetAmount: number | null;
-  lpTokenAmount: number;
-  lpTokensOwned: number;
-  /** Unix milliseconds; zero means no current hold. */
-  withdrawalAvailableAt: number;
-  withdrawalHoldSeconds: number | null;
-  enabled: boolean;
-  unlocked: boolean;
-  sufficientLp: boolean;
-  /** Pool checks only. Execution also checks KYC, wallet assets and ALGO costs. */
-  poolChecksPassed: boolean;
-  quotedAt: number;
-  additionalAlgoCosts: boolean;
-  /** Position-box funding only. NOT a complete network/opt-in cost estimate. */
-  positionBoxFundingAlgo: number;
-}
-export interface PoolDepositParams {
-  poolId: number;
-  side: 'base' | 'quote';
-  amount: number;
-  /** Minimum LP tokens received, enforced on-chain. */
-  minLpOut: number;
-}
-export interface PoolWithdrawParams {
-  poolId: number;
-  side: 'base' | 'quote';
-  /** Gross withdrawal before the penalty. */
-  amount: number;
-  /** Minimum net asset output, enforced on-chain. */
-  minAssetOut: number;
-  /** Maximum LP tokens burned, enforced on-chain. Must not exceed LP tokens owned. */
-  maxLpBurn: number;
-}
-export interface LiquidityExecutionResponse {
-  batchId: string;
-  operation: 'deposit' | 'withdraw';
-  side: 'base' | 'quote';
-  poolId: number;
 }
