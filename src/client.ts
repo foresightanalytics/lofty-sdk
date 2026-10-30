@@ -84,8 +84,8 @@ export class LoftyClient {
    *
    * Returns `{ kind: 'order', order }` or `{ kind: 'swap', swap }` so you can
    * branch on `kind` without knowing the id type up front. A batch id carries a
-   * `sdk-swap-` / `pooltx` prefix (contains `-` or `_`); a book order id is a
-   * bare ULID, so the two are unambiguous.
+   * `sdk-swap-` / `pooltx` prefix (contains `-` or `_`); book order IDs are
+   * bare ULIDs and routed market order IDs start with `MKT_`.
    *
    * @example
    * const res = await lofty.getStatus(idOrBatchId);
@@ -98,7 +98,7 @@ export class LoftyClient {
     if (!id || typeof id !== 'string') {
       throw new Error('getStatus requires an orderId or batchId.');
     }
-    const isBatchId = id.includes('-') || id.includes('_');
+    const isBatchId = !id.startsWith('MKT_') && (id.includes('-') || id.includes('_'));
     if (isBatchId) {
       const { swap } = await this.amm.getSwapStatus(id);
       return { kind: 'swap', swap };
