@@ -24,7 +24,7 @@ export class OrdersResource {
   constructor(private readonly client: LoftyClient) {}
 
   /**
-   * Place an order on the Lofty exchange. Funded from your Lofty USDC wallet.
+   * Place an order on the Lofty exchange. Funded from your account’s USDC or USDL wallet.
    * Trading must be enabled on your API key.
    *
    * `orderType` defaults to `'limit'`. On fractional properties you can also place
@@ -92,7 +92,19 @@ export class OrdersResource {
     // server-side; these checks only mirror the contract.
     const orderType = params.orderType;
     const isTriggerOrder = orderType !== undefined && TRIGGER_ORDER_TYPES.includes(orderType);
-    if (isTriggerOrder) {
+    if (orderType === 'market') {
+      const bps = params.maxSlippageBps;
+      if (typeof bps !== 'number' || !Number.isInteger(bps) || bps < 0 || bps >= 10000) {
+        throw new LoftyError(400, { code: 'invalid_slippage',
+          message: 'Market orders require maxSlippageBps: an integer from 0 to 9999 (100 = 1%).', field: 'maxSlippageBps' });
+      }
+      if (params.price !== undefined || params.expireAt !== undefined || params.triggerPrice !== undefined
+        || params.triggerLimitPrice !== undefined || params.trailPercent !== undefined || params.referenceWindowDays !== undefined
+        || params.useGift || params.useRent) {
+        throw new LoftyError(400, { code: 'invalid_market_fields',
+          message: 'Market orders use quantity and maxSlippageBps. Omit price, expiry, trigger fields, gift and rent.' });
+      }
+    } else if (isTriggerOrder) {
       if (orderType !== 'trailing_stop' && !(Number(params.triggerPrice) > 0)) {
         throw new LoftyError(400, {
           code: 'invalid_trigger_price',
@@ -135,7 +147,7 @@ export class OrdersResource {
     } else if (params.price === undefined || params.price === null) {
       throw new LoftyError(400, {
         code: 'missing_field',
-        message: 'price is required for limit/market orders.',
+        message: 'price is required for limit orders.',
         field: 'price',
       });
     }
@@ -171,6 +183,7 @@ export class OrdersResource {
         useGift: params.useGift,
         useRent: params.useRent,
         orderType: params.orderType,
+        ...(params.orderType === 'market' ? { maxSlippageBps: params.maxSlippageBps } : {}),
         triggerPrice: params.triggerPrice,
         triggerLimitPrice: params.triggerLimitPrice,
         trailPercent: params.trailPercent,
@@ -187,7 +200,7 @@ export class OrdersResource {
    *
    * @example
    * const { order } = await lofty.orders.get('01J...');
-   * console.log(order.status); // 'active' | 'executed' | 'cancelled' | ...
+   * console.log(order.state); // Includes market execution progress.
    */
   async get(orderId: string): Promise<GetOrderResponse> {
     requirePathParam(orderId, 'orderId');
@@ -236,6 +249,7 @@ export class OrdersResource {
         status: params.status,
         triggerState: params.triggerState,
         all: params.all ? 'true' : undefined,
+        includeMarket: params.includeMarket ? 'true' : undefined,
       },
     });
   }

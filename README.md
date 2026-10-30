@@ -360,16 +360,17 @@ const { orderId } = await lofty.orders.create({
 |-------|------|----------|-------------|
 | `propertyId` | `string` | yes | Lofty property ID |
 | `direction` | `'buy' \| 'sell'` | yes | Order side |
-| `price` | `number` | for limit/market | Price per token in USD (min $0.01). Optional on trigger orders (normalized server-side) |
+| `price` | `number` | for limit | Price per token in USD (min $0.01). Optional on trigger orders (normalized server-side) |
+| `maxSlippageBps` | `number` | for market | Explicit integer slippage limit: 0–9999 basis points; 100 = 1%. No default |
 | `quantity` | `number` | yes | Number of tokens — whole shares for `assetDecimals: 0` properties; for fractional ones, multiples of 0.0001, minimum 0.01 tokens and $1 notional |
-| `expireAt` | `number` | no | Unix ms expiry (min 29 days from now, default 30 days) |
+| `expireAt` | `number` | no | Limit/trigger Unix ms expiry (min 29 days from now, default 30 days); omit for market |
 | `orderType` | `string` | no | `limit` (default), `market`, or — fractional properties only — `stop_loss`, `stop_limit`, `trailing_stop` |
 | `triggerPrice` | `number` | for stop types | USD/token reference price that arms the order |
 | `triggerLimitPrice` | `number` | for stop_limit | Limit price of the converted order (sell: ≤ trigger; buy: ≥ trigger) |
 | `trailPercent` | `number` | for trailing_stop | Trail distance in percent (1–50) |
 | `referenceWindowDays` | `number` | no | Trigger reference window: 7, 14, or 30 (default 30) |
-| `useGift` | `number` | no | Gift balance (whole USD) to apply to a **buy**; default 0. Capped at your `giftBalance`; buy-only. Not valid on trigger orders |
-| `useRent` | `number` | no | Rental-income balance (whole USD) to apply to a **buy**; default 0. Capped at your `rentBalance`; buy-only. Not valid on trigger orders |
+| `useGift` | `number` | no | Gift balance (whole USD) to apply to a **buy**; default 0. Capped at your `giftBalance`; buy-only. Not valid on trigger or market orders |
+| `useRent` | `number` | no | Rental-income balance (whole USD) to apply to a **buy**; default 0. Capped at your `rentBalance`; buy-only. Not valid on trigger or market orders |
 
 **Trigger orders** (`stop_loss` / `stop_limit` / `trailing_stop`) rest **hidden** until the platform's trigger engine fires them, then convert into ordinary limit orders. The trigger watches a volume-weighted average of real book fills over `referenceWindowDays` — wash trades, sub-$5 fills, and flash pairs are excluded, and a fired order never converts more than 20% past its trigger line. Fractional properties only; funded from your Lofty USDC wallet only; max 3 pending per property. Cancel them like any order.
 
@@ -397,6 +398,46 @@ const result = await lofty.orders.create(params, key);
 // If the network drops, retry with the same key:
 const result = await lofty.orders.create(params, key); // returns the same order
 ```
+
+### Market orders
+
+```typescript
+const accepted = await lofty.orders.create({
+  propertyId: 'PROPERTY_ID',
+  direction: 'sell',
+  quantity: 0.1,
+  orderType: 'market',
+  maxSlippageBps: 100, // 1%; required, with no default
+}, 'stable-key-for-this-request');
+
+const { order } = await lofty.orders.get(accepted.orderId);
+console.log(order.state, order.filledQuantity);
+const { marketOrders } = await lofty.orders.list({ all: true, includeMarket: true });
+```
+
+Market orders compare executable order-book prices and compatible V3 PMM quotes after fees.
+They may use either venue or split the quantity. Legacy accounts use USDC; migrated accounts
+use USDL (`LUSDC` in API values). The API never converts your account's settlement asset.
+
+Omit `price`, `expireAt`, trigger fields, `useGift`, and `useRent`. Insufficient quoted liquidity
+rejects the entire request before submission. Slippage uses the quoted total including trading
+fees, excluding Algorand network fees. Conservative book bounds can reject a route even when
+its initial depth quote is within your limit.
+
+Acceptance does not confirm a fill. Split routes execute the pool first, then continue the book
+after pool settlement. Liquidity can change during execution, so partial fills are possible.
+The book expires three minutes after acceptance, and a background worker cancels the remainder.
+Already accepted fills can finish later. Cancellation cannot revoke an accepted pool swap.
+
+Poll `orders.get()` for `filled`, `partially_filled_cancelled`, or `cancelled`.
+`execution_pending` means execution continues. `execution_unknown` means the result needs
+reconciliation; do not place a replacement. Reuse the same idempotency key after a transport error.
+Parent market orders use `MKT_...` IDs. `orders.list({ ..., includeMarket: true })` adds a separate
+`marketOrders` array; the existing `orders` array still includes any child book orders.
+
+**Upgrade:** SDK 0.9.0 requires the matching backend release. Existing priced market calls must
+switch to explicit slippage and omit price. Limit order calls keep their existing behavior.
+`amm.executeSwap()` remains a separate API and does not gain this router.
 
 #### `.cancel(params, idempotencyKey?)`
 
