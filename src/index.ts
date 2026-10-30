@@ -51,6 +51,7 @@ export type {
   CreateOrderParams,
   CreateOrderResponse,
   GetOrderResponse,
+  MarketOrder,
   CancelOrderParams,
   CancelOrderResponse,
   ListOrdersParams,

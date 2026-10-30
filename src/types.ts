@@ -195,7 +195,8 @@ export type OrderStatus =
   | 'intent';
 
 /**
- * How an order behaves. `limit` (default) and `market` rest on the book at `price`.
+ * How an order behaves. `limit` (default) rests on the book at `price`.
+ * `market` routes across compatible book and V3 PMM liquidity with explicit slippage.
  * The trigger types — fractional properties only — rest HIDDEN until the platform's
  * trigger engine fires them, then convert into ordinary limit orders:
  * - `stop_loss`: requires `triggerPrice`; fires when the reference crosses it
@@ -217,11 +218,11 @@ export type TriggerState = 'pending' | 'triggered';
 /** Allowed `referenceWindowDays` values for trigger orders. */
 export const REFERENCE_WINDOW_CHOICES_DAYS = [7, 14, 30] as const;
 
-export interface CreateOrderParams {
+interface CreateOrderBase {
   propertyId: string;
   direction: OrderDirection;
   /**
-   * Price per token in USD (e.g. 52.50). Required for `limit`/`market` orders.
+   * Price per token in USD (e.g. 52.50). Required for `limit` orders. Omit for routed market orders.
    * Optional for trigger orders — the resting price is normalized server-side
    * (stop -> trigger price, stop_limit -> limit price).
    */
@@ -274,12 +275,42 @@ export interface CreateOrderParams {
   useRent?: number;
 }
 
+/** Market execution requires an explicit slippage limit; no dollar or percentage default applies. */
+export type CreateOrderParams = CreateOrderBase & (
+  | { orderType: 'market'; maxSlippageBps: number; price?: never; expireAt?: never; useGift?: never; useRent?: never; triggerPrice?: never; triggerLimitPrice?: never; trailPercent?: never; referenceWindowDays?: never; }
+  | { orderType?: Exclude<OrderType, 'market'>; maxSlippageBps?: never; }
+);
+
 export interface CreateOrderResponse {
   orderId: string;
+  /** Market requests return acceptance, never a claim of a completed fill. */
+  state?: 'execution_pending';
+  route?: 'book' | 'pmm' | 'split';
+  settlementCurrency?: 'USDC' | 'LUSDC';
+  quotedTotal?: number;
+  slippageBound?: number;
+  submissionIncomplete?: boolean;
+  message?: string;
+}
+
+export interface MarketOrder {
+  orderId: string;
+  propertyId: string;
+  direction: OrderDirection;
+  orderType: 'market';
+  quantity: number;
+  filledQuantity: number;
+  remainingQuantity: number;
+  state: 'execution_pending' | 'execution_unknown' | 'filled' | 'partially_filled_cancelled' | 'cancelled';
+  settlementCurrency: 'USDC' | 'LUSDC';
+  createdAt: number;
+  expireAt: number;
+  bookOrderId?: string;
+  batchId?: string;
 }
 
 export interface GetOrderResponse {
-  order: Order;
+  order: Order | MarketOrder;
 }
 
 export interface CancelOrderParams {
@@ -292,6 +323,8 @@ export interface CancelOrderResponse {
 }
 
 export interface ListOrdersParams {
+  /** Include routed market parents in the separate marketOrders array. */
+  includeMarket?: boolean;
   /** Filter to a single property. Provide this or `all: true`. */
   propertyId?: string;
   /** Fetch all orders across all properties. Provide this or `propertyId`. */
@@ -390,6 +423,7 @@ export interface GetSwapStatusResponse {
 
 export interface ListOrdersResponse {
   orders: Order[];
+  marketOrders?: MarketOrder[];
 }
 
 // ─── Account ──────────────────────────────────────────────────────────────────

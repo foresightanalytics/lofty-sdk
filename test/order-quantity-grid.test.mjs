@@ -79,3 +79,28 @@ test('large on-grid quantities are not tripped by float noise', async () => {
   await client().orders.create({ propertyId: 'prop_1', direction: 'buy', price: 1, quantity: 12345.6789 });
   assert.equal(calls[0].body.quantity, 12345.6789);
 });
+
+test('market orders require explicit slippage before any request', async () => {
+  const calls = capture();
+  for (const maxSlippageBps of [undefined, null, NaN, Infinity, -1, 10000, '100']) {
+    await assert.rejects(client().orders.create({ propertyId: 'prop_1', direction: 'sell', quantity: 1,
+      orderType: 'market', maxSlippageBps }), (error) => error.code === 'invalid_slippage');
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('market orders send explicit zero slippage and omit a resting price', async () => {
+  const calls = capture();
+  await client().orders.create({ propertyId: 'prop_1', direction: 'sell', quantity: 1,
+    orderType: 'market', maxSlippageBps: 0 });
+  assert.equal(calls[0].body.maxSlippageBps, 0);
+  assert.equal(calls[0].body.orderType, 'market');
+  assert.equal('price' in calls[0].body, false);
+});
+
+test('legacy market price cannot silently change meaning', async () => {
+  const calls = capture();
+  await assert.rejects(client().orders.create({ propertyId: 'prop_1', direction: 'sell', quantity: 1,
+    orderType: 'market', price: 52, maxSlippageBps: 100 }), (error) => error.code === 'invalid_market_fields');
+  assert.equal(calls.length, 0);
+});
