@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.10.0
+
+### AMM response unions (type-level breaking change)
+
+- `AmmQuote` now discriminates pool quotes (`source: 'amm'`) from paused order-book
+  quotes (`source: 'orderbook', tradingPaused: true`). The pool branch types
+  `tradingPaused` as optional `undefined` for direct narrowing.
+- `ExecuteSwapResponse` now discriminates pool execution (`batchId`, `result`) from
+  paused-book routing (`routedTo: 'orderbook'`, `tradingPaused: true`, `orderId`,
+  `propertyId`, `side`, `quantity`, `limitPrice`, `expireAt`, and `message`). The pool
+  branch types `routedTo` and `tradingPaused` as optional `undefined`.
+- Narrow swaps before reading branch-only fields. Consumers extending the old response
+  interfaces can instead extend the new exported branch interfaces. Request behavior
+  and runtime JSON pass-through are unchanged.
+- Added representative pool/paused-book transport tests and a strict, unbundled
+  TypeScript consumer fixture covering both discriminant styles.
+
+## 0.9.1
+
+- `getStatus()` now routes routed-market `MKT_...` IDs to `GET /public/v1/orders/{id}`
+  instead of misclassifying them as pool batch IDs.
+
+## 0.9.0
+
+### Routed market orders
+
+- `orders.create({ orderType: 'market' })` requires an explicit integer
+  `maxSlippageBps` from 0 to 9999 and rejects resting-price, expiry, trigger, gift,
+  and rent fields. Market execution compares compatible book and V2 PMM liquidity.
+- Added market acceptance/execution response types, `MarketOrder`, and
+  `orders.list({ includeMarket: true })`. Acceptance is not a fill guarantee; poll
+  order status and reconcile uncertain execution rather than replacing the order.
+- Routed accounts may settle in USDC or USDL (`LUSDC` in API values). Limit-order
+  request behavior is unchanged.
+
+## 0.8.1
+
+- Reverted the 0.8.0 V2 liquidity preview, deposit, withdrawal, reporting, and unit
+  changes, restoring the pre-0.8.0 SDK surface. Existing account withdrawals remain
+  separate from pool liquidity operations.
+
+## 0.8.0
+
+- Added V2 pool liquidity previews plus bounded deposits and withdrawals, V2 position
+  and reporting types, and whole-unit liquidity fields. These changes were reverted in
+  0.8.1 and are not part of the current SDK surface.
+
 ## 0.7.0
 
 ### Withdrawals

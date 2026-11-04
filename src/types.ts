@@ -693,21 +693,22 @@ export interface GetQuoteByUsdcAmount {
 
 export type GetQuoteParams = GetQuoteByTokenAmount | GetQuoteByUsdcAmount;
 
-export interface AmmQuote {
+interface AmmQuoteBase {
   poolId: number;
   side: QuoteSide;
   /** Property tokens involved */
   tokenAmount: number;
   /**
-   * The raw AMM pool payment for the swap. This is NOT the full wallet
-   * movement: swap fees are charged separately on top (buys) or out of the
-   * proceeds (sells). Use `totalDebit` (buys) / `netProceeds` (sells) for the
-   * amount that actually hits your wallet.
+   * The raw pool payment or order-book total before swap/exchange fees. This is
+   * NOT the full wallet movement: fees are charged separately on top (buys) or
+   * out of the proceeds (sells). Use `totalDebit` (buys) / `netProceeds` (sells)
+   * for the amount that actually hits your wallet.
    */
   usdcAmount: number;
   /**
-   * Swap fee breakdown charged in addition to `usdcAmount` (platform + LP +
-   * operating reserve), computed identically to on-chain execution.
+   * Fee breakdown charged in addition to `usdcAmount`. Pool quotes contain swap
+   * fees; paused order-book quotes contain the exchange fee in `platform`, with
+   * `lp` and `operatingReserve` set to zero.
    * Present on API deployments from 2026-07-21 onward.
    */
   fees?: {
@@ -723,8 +724,8 @@ export interface AmmQuote {
   /** Effective price per token in USDC */
   usdcPerToken: number;
   /**
-   * Reference (oracle) price used for comparison.
-   * priceHigh for buys, priceLow for sells.
+   * Reference price used for comparison: the pool oracle price for an AMM quote,
+   * or the top of the live order book for a paused-book quote.
    */
   referencePrice: number;
   /**
@@ -735,6 +736,25 @@ export interface AmmQuote {
   /** Price impact per token vs reference price (in USDC) */
   priceImpact: number;
 }
+
+/** A quote produced by simulating the swap on the on-chain AMM contract. */
+export interface AmmPoolQuote extends AmmQuoteBase {
+  source: 'amm';
+  /** Absent on pool quotes; `true` identifies a paused order-book quote. */
+  tradingPaused?: undefined;
+}
+
+/** A quote walked from the live order book while AMM trading is paused. */
+export interface AmmOrderBookQuote extends AmmQuoteBase {
+  source: 'orderbook';
+  tradingPaused: true;
+}
+
+/**
+ * Executable quote from either supported venue. Narrow on `source`, or check
+ * `tradingPaused`, to select the pool or paused order-book branch.
+ */
+export type AmmQuote = AmmPoolQuote | AmmOrderBookQuote;
 
 export interface ExecuteSwapParams {
   poolId: number;
@@ -760,11 +780,39 @@ export interface ExecuteSwapParams {
   minUsdcAmount?: number;
 }
 
-export interface ExecuteSwapResponse {
+/** A swap accepted for execution on the AMM pool. */
+export interface ExecutePoolSwapResponse {
   /** Batch ID for tracking the transaction status on-chain */
   batchId: string;
   result: unknown;
+  /** Absent on pool swaps; `'orderbook'` identifies a paused-book swap. */
+  routedTo?: undefined;
+  /** Absent on pool swaps; `true` identifies a paused-book swap. */
+  tradingPaused?: undefined;
 }
+
+/** A swap placed as a limit order on the book while AMM trading is paused. */
+export interface ExecuteOrderBookSwapResponse {
+  routedTo: 'orderbook';
+  tradingPaused: true;
+  /** Track this order with `orders.get(orderId)`, not `amm.getSwapStatus()`. */
+  orderId: string;
+  propertyId: string;
+  side: QuoteSide;
+  quantity: number;
+  /** Limit price derived from the swap's slippage bound. */
+  limitPrice: number;
+  /** Unix milliseconds; the resting order expires 30 days after acceptance. */
+  expireAt: number;
+  message: string;
+}
+
+/**
+ * Result of submitting a swap. Narrow on `routedTo` or `tradingPaused` before
+ * accessing the pool `batchId` or order-book order fields. A book-routed swap
+ * may fill partially and is not an atomic pool execution.
+ */
+export type ExecuteSwapResponse = ExecutePoolSwapResponse | ExecuteOrderBookSwapResponse;
 
 // ─── LP Rewards ───────────────────────────────────────────────────────────────
 

@@ -47,8 +47,9 @@ export class AmmResource {
   }
 
   /**
-   * Get a price quote from the on-chain AMM contract.
-   * Pass either `tokenAmount` or `usdcAmount` — not both.
+   * Get an executable price quote from the on-chain AMM contract, or from the
+   * live order book while pool trading is paused. Pass either `tokenAmount` or
+   * `usdcAmount` — not both. Narrow the response on `source` or `tradingPaused`.
    *
    * @example
    * // Cost to buy 10 tokens
@@ -72,8 +73,12 @@ export class AmmResource {
   }
 
   /**
-   * Execute an AMM swap. Buys or sells property tokens via the AMM pool.
-   * Trading must be enabled on your API key.
+   * Execute a swap on the AMM pool, or place a limit order on the book while
+   * pool trading is paused. Trading must be enabled on your API key.
+   *
+   * Narrow the response on `routedTo` or `tradingPaused`: pool execution returns
+   * a `batchId`; book routing returns an `orderId` and order details instead.
+   * A book-routed order may partially fill and is not an atomic pool swap.
    *
    * For buys, `maxUsdcAmount` is required — it sets your slippage tolerance.
    * Get the expected cost first with `getQuote()`, then add a small buffer.
