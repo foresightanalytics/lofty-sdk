@@ -24,8 +24,12 @@ export type {
   GetQuoteByTokenAmount,
   GetQuoteByUsdcAmount,
   AmmQuote,
+  AmmPoolQuote,
+  AmmOrderBookQuote,
   ExecuteSwapParams,
   ExecuteSwapResponse,
+  ExecutePoolSwapResponse,
+  ExecuteOrderBookSwapResponse,
   // Properties
   ListPropertiesParams,
   ListPropertiesResponse,

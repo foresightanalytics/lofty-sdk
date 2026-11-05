@@ -415,7 +415,7 @@ console.log(order.state, order.filledQuantity);
 const { marketOrders } = await lofty.orders.list({ all: true, includeMarket: true });
 ```
 
-Market orders compare executable order-book prices and compatible V3 PMM quotes after fees.
+Market orders compare executable order-book prices and compatible V2 PMM quotes after fees.
 They may use either venue or split the quantity. Legacy accounts use USDC; migrated accounts
 use USDL (`LUSDC` in API values). The API never converts your account's settlement asset.
 
@@ -632,6 +632,15 @@ venue served each response — branch on the response fields (`source`, `routedT
 | `.executeSwap()` | executes on the pool; returns `{ batchId }` | placed on the order book as a limit order; returns `{ routedTo: 'orderbook', orderId }` |
 | `.listPools()` / `.getPool()` | pool state | throws `LoftyError` `409 amm_trading_paused` |
 
+**0.10.0 type migration.** `AmmQuote` and `ExecuteSwapResponse` are now discriminated
+unions matching both backend response branches. Narrow quotes with
+`quote.source === 'orderbook'` (or `quote.tradingPaused`) and swaps with
+`result.routedTo === 'orderbook'` (or `result.tradingPaused`) before accessing
+branch-only fields such as `batchId` or `orderId`. Code that extended the old response
+interfaces should extend the relevant exported branch interface (`AmmPoolQuote`,
+`AmmOrderBookQuote`, `ExecutePoolSwapResponse`, or `ExecuteOrderBookSwapResponse`).
+Request payloads and runtime response handling are unchanged.
+
 #### `.listPools()`
 
 List all active AMM pools.
@@ -714,14 +723,14 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', usdcAmount: 200 
 
 Market-execute a buy or sell. Requires `tokenAmount` plus a slippage bound:
 `maxUsdcAmount` (buys — the most you'll pay) or `minUsdcAmount` (sells — the least
-you'll accept). **Branch on the response shape:**
+you'll accept). **Narrow the response before accessing branch-specific fields:**
 
 ```typescript
 const res = await lofty.amm.executeSwap({
   poolId: 123, side: 'buy', tokenAmount: 10, maxUsdcAmount: 500,
 });
 
-if ('routedTo' in res && res.routedTo === 'orderbook') {
+if (res.routedTo === 'orderbook') {
   // Placed on the order book as a limit order at your slippage bound:
   // buys at maxUsdcAmount / tokenAmount (floored to the cent — your cap is never
   // exceeded); sells at minUsdcAmount / tokenAmount (ceiled — your floor is never
