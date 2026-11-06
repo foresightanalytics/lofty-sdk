@@ -419,6 +419,12 @@ Market orders compare executable order-book prices and compatible V2 PMM quotes 
 They may use either venue or split the quantity. Legacy accounts use USDC; migrated accounts
 use USDL (`LUSDC` in API values). The API never converts your account's settlement asset.
 
+For each split candidate, the server quotes the actual pool remainder instead of scaling the
+full-order average. Route search is capped at 32 simulations, four concurrent quotes, and four
+seconds. If pool quoting, depth, or the search budget fails, the API may return the best complete
+route already verified, without another request. If no such route exists, it returns
+`quote_unavailable`.
+
 Omit `price`, `expireAt`, trigger fields, `useGift`, and `useRent`. Insufficient quoted liquidity
 rejects the entire request before submission. Slippage uses the quoted total including trading
 fees, excluding Algorand network fees. Conservative book bounds can reject a route even when
