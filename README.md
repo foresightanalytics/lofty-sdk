@@ -666,7 +666,7 @@ These prices are for the smallest order (0.01 token), scaled to one token. Witho
 `price` is the midpoint only when the pool holds 0.1 token or more, can quote a buy, and
 has an ask above the bid. In each other case, `price` is the sell price before the sell
 fees. If the pool cannot quote a buy, `priceHigh` keeps its last value. If the pool cannot
-quote a sell, `priceLow` and `price` keep their last values.
+quote a sell, `priceHigh`, `priceLow`, `price`, and `priceVersion` all keep their last values.
 
 A larger order gets a worse price for each token. On a pool with few tokens, one trade
 can move these prices a lot. Use `amm.getQuote()` for the price of your order.

@@ -667,12 +667,14 @@ export interface AmmPool {
    * A larger order gets a worse price for each token. Use `amm.getQuote()` for the
    * price of your order.
    *
-   * If the pool cannot quote a sell, `priceLow` and `price` keep their last values.
+   * If the pool cannot quote a sell, `priceHigh`, `priceLow`, `price`, and
+   * `priceVersion` all keep their last values: the three prices change meaning together.
    * The prices follow the pool state. On a pool with few tokens, one trade can move
    * them a lot.
    *
    * A V1 pool never has this field. Without it, the prices have the older meaning:
-   * - `priceHigh`: the pool quote to buy exactly one token.
+   * - `priceHigh`: the pool quote to buy exactly one token, with the buy fees included
+   *   on a V2 pool. A V2 pool row keeps this meaning until a refresh can quote the sell.
    * - `priceLow`: the pool quote to sell exactly one token, before the sell fees.
    * - `price`: the same value as `priceLow`.
    */
