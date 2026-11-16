@@ -642,7 +642,9 @@ export interface AmmPool {
   active: boolean;
   /**
    * Market price (USDC per token): the midpoint of `priceHigh` and `priceLow`.
-   * If the pool cannot quote a buy, it is the sell price before the sell fees.
+   * It is the midpoint only when the pool holds 0.1 token or more, can quote a buy,
+   * and has an ask above the bid. In each other case, it is the sell price before the
+   * sell fees.
    * This meaning applies only when `priceVersion` is `2`. See `priceVersion`.
    * This is not the pool's oracle price. The API does not return the oracle price.
    */

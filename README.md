@@ -661,10 +661,12 @@ for (const p of pools) {
 When a pool has `priceVersion: 2`, `priceHigh` is the ask (buy fees included) and
 `priceLow` is the bid (after the sell fees). `price` is the market price: their midpoint.
 These prices are for the smallest order (0.01 token), scaled to one token. Without
-`priceVersion`, `priceLow` is before the sell fees and `price` equals `priceLow`. If the
-pool cannot quote a buy, `priceHigh` keeps its last value and `price` is the sell price
-before the sell fees. If the pool cannot quote a sell, `priceLow` and `price` keep their
-last values.
+`priceVersion`, `priceLow` is before the sell fees and `price` equals `priceLow`.
+
+`price` is the midpoint only when the pool holds 0.1 token or more, can quote a buy, and
+has an ask above the bid. In each other case, `price` is the sell price before the sell
+fees. If the pool cannot quote a buy, `priceHigh` keeps its last value. If the pool cannot
+quote a sell, `priceLow` and `price` keep their last values.
 
 A larger order gets a worse price for each token. On a pool with few tokens, one trade
 can move these prices a lot. Use `amm.getQuote()` for the price of your order.
