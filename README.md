@@ -658,6 +658,17 @@ for (const p of pools) {
 }
 ```
 
+When a pool has `priceVersion: 2`, `priceHigh` is the ask (buy fees included) and
+`priceLow` is the bid (after the sell fees). `price` is the market price: their midpoint.
+These prices are for the smallest order (0.01 token), scaled to one token. Without
+`priceVersion`, `priceLow` is before the sell fees and `price` equals `priceLow`. If the
+pool cannot quote a buy, `priceHigh` keeps its last value and `price` is the sell price
+before the sell fees. If the pool cannot quote a sell, `priceLow` and `price` keep their
+last values.
+
+A larger order gets a worse price for each token. On a pool with few tokens, one trade
+can move these prices a lot. Use `amm.getQuote()` for the price of your order.
+
 While pool trading is paused this throws `LoftyError` with `code: 'amm_trading_paused'` —
 pool state (including prices) is not served, because nothing can execute at those prices.
 Use `properties.getOrderBook()` for live depth, `properties.getTrades()` for history, and
@@ -700,9 +711,9 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', usdcAmount: 500 }
 
 // USDC received for selling 5 tokens
 const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', tokenAmount: 5 });
-// q.usdcAmount  → USDC received after fees
+// q.netProceeds → USDC received after fees
 
-// Tokens needed to receive $200 USDC
+// Tokens to sell for $200 before the sell fees
 const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', usdcAmount: 200 });
 // q.tokenAmount → tokens you need to sell
 ```
@@ -710,10 +721,10 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', usdcAmount: 200 
 | Field | Description |
 |-------|-------------|
 | `tokenAmount` | Property tokens involved |
-| `usdcAmount` | USDC paid (buy) or received (sell) |
+| `usdcAmount` | Pool payment or order-book total. On a sell, it is before the fees; `netProceeds` is the amount received. On a buy, `totalDebit` is the amount paid. |
 | `usdcPerToken` | Effective exchange rate |
-| `referencePrice` | Comparison price: pool `priceHigh`/`priceLow` (`source: 'amm'`) or top of book — best ask on buys, best bid on sells (`source: 'orderbook'`) |
-| `slippage` | `%` deviation from reference price. Positive = worse than reference. |
+| `referencePrice` | Comparison price: pool `priceHigh` on buys, `priceLow` on sells (`source: 'amm'`), or top of book — best ask on buys, best bid on sells (`source: 'orderbook'`). On a sell from a pool with `priceVersion: 2`, `slippage` and `priceImpact` compare `netProceeds` with it; all other quotes compare `usdcAmount`. |
+| `slippage` | `%` deviation from reference price. Buy: positive = paid more than reference. Sell: negative = received less than reference. |
 | `priceImpact` | Per-token USDC difference vs reference (negative impact is favorable for buys) |
 | `fees` | Fee breakdown. Same shape in both modes; order-book quotes carry the exchange fee in `platform` with `lp`/`operatingReserve` at 0. |
 | `totalDebit` / `netProceeds` | What your wallet is actually debited (buys) / receives (sells), fees included |

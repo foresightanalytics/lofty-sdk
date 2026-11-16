@@ -640,12 +640,41 @@ export interface AmmPool {
   poolId: number;
   propertyId: string;
   active: boolean;
-  /** Oracle price (USDC per token) */
+  /**
+   * Market price (USDC per token): the midpoint of `priceHigh` and `priceLow`.
+   * If the pool cannot quote a buy, it is the sell price before the sell fees.
+   * This meaning applies only when `priceVersion` is `2`. See `priceVersion`.
+   * This is not the pool's oracle price. The API does not return the oracle price.
+   */
   price: number;
-  /** Upper price bound used as buy reference */
+  /**
+   * Ask (USDC per token): what a buyer pays for each token, buy fees included.
+   * If the pool cannot quote a buy, it keeps its last value.
+   * This meaning applies only when `priceVersion` is `2`. See `priceVersion`.
+   */
   priceHigh: number;
-  /** Lower price bound used as sell reference */
+  /**
+   * Bid (USDC per token): what a seller receives for each token, after the sell fees.
+   * This meaning applies only when `priceVersion` is `2`. Without `priceVersion`,
+   * this price is before the sell fees. See `priceVersion`.
+   */
   priceLow: number;
+  /**
+   * `2` when `price`, `priceHigh`, and `priceLow` have the meanings above. Then the
+   * prices come from pool quotes for the smallest order (0.01 token), scaled to one token.
+   * A larger order gets a worse price for each token. Use `amm.getQuote()` for the
+   * price of your order.
+   *
+   * If the pool cannot quote a sell, `priceLow` and `price` keep their last values.
+   * The prices follow the pool state. On a pool with few tokens, one trade can move
+   * them a lot.
+   *
+   * A V1 pool never has this field. Without it, the prices have the older meaning:
+   * - `priceHigh`: the pool quote to buy exactly one token.
+   * - `priceLow`: the pool quote to sell exactly one token, before the sell fees.
+   * - `price`: the same value as `priceLow`.
+   */
+  priceVersion?: 2;
   fees: AmmPoolFees;
   liquidity: {
     /** Base (property token) balance in pool */
@@ -724,8 +753,11 @@ interface AmmQuoteBase {
   /** Effective price per token in USDC */
   usdcPerToken: number;
   /**
-   * Reference price used for comparison: the pool oracle price for an AMM quote,
-   * or the top of the live order book for a paused-book quote.
+   * Reference price for `slippage` and `priceImpact`. An AMM quote uses the pool's
+   * `priceHigh` on a buy and `priceLow` on a sell. A paused-book quote uses the top
+   * of the live order book. On a sell from a pool with `priceVersion: 2`, `slippage`
+   * and `priceImpact` compare `netProceeds` with this price. All other quotes compare
+   * `usdcAmount`.
    */
   referencePrice: number;
   /**
