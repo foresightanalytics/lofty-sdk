@@ -7,6 +7,7 @@ export type LoftyErrorCode =
   | 'missing_field'
   | 'invalid_field'
   | 'invalid_order'
+  | 'quote_unavailable'
   | 'order_rejected'
   | 'order_in_progress'
   | 'order_not_found'

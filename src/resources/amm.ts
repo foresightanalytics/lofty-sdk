@@ -50,6 +50,13 @@ export class AmmResource {
    * Get an executable price quote from the on-chain AMM contract, or from the
    * live order book while pool trading is paused. Pass either `tokenAmount` or
    * `usdcAmount` — not both. Narrow the response on `source` or `tradingPaused`.
+   * `usdcAmount` must be positive and finite; sells target proceeds before fees.
+   * Use `totalDebit` (buy) or `netProceeds` (sell) for the wallet amount.
+   *
+   * @throws {LoftyError} HTTP 400 `invalid_field` with `field: 'usdcAmount'` for a
+   * non-positive or non-finite dollar amount; HTTP 409 `quote_unavailable` when an
+   * AMM dollar quote has no usable reference price or no positive quote within the
+   * requested amount. Try a smaller amount or request `tokenAmount`.
    *
    * @example
    * // Cost to buy 10 tokens
