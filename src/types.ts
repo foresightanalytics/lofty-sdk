@@ -641,42 +641,46 @@ export interface AmmPool {
   propertyId: string;
   active: boolean;
   /**
-   * Market price (USDC per token): the midpoint of `priceHigh` and `priceLow`.
-   * It is the midpoint only when the pool holds 0.1 token or more, can quote a buy,
-   * and has an ask above the bid. In each other case, it is the sell price before the
-   * sell fees.
-   * This meaning applies only when `priceVersion` is `2`. See `priceVersion`.
+   * Market price (USDC per token) when `priceVersion` is `2`. After a successful
+   * sell sample, it is the midpoint of `priceHigh` and `priceLow` only when the same
+   * refresh quotes a buy, the pool holds at least 0.1 token, and the ask exceeds the
+   * bid. Otherwise it is the 0.01-token sell quote before fees, scaled to one token.
+   * Older rows use the one-token sell quote before fees, equal to `priceLow`.
+   * Failed V2 sell samples retain the previous price tuple. See `priceVersion`.
    * This is not the pool's oracle price. The API does not return the oracle price.
    */
   price: number;
   /**
-   * Ask (USDC per token): what a buyer pays for each token, buy fees included.
-   * If the pool cannot quote a buy, it keeps its last value.
-   * This meaning applies only when `priceVersion` is `2`. See `priceVersion`.
+   * Buy reference (USDC per token). With `priceVersion: 2`, normally the 0.01-token
+   * buy quote scaled to one token, buy fees included. A failed buy retains the prior
+   * ask, which can still be the older one-token quote during migration.
+   * Older rows use the one-token buy quote: fees included on V2, before fees on V1.
+   * Failed V2 sell samples also retain this value. See `priceVersion`.
    */
   priceHigh: number;
   /**
    * Bid (USDC per token): what a seller receives for each token, after the sell fees.
-   * This meaning applies only when `priceVersion` is `2`. Without `priceVersion`,
-   * this price is before the sell fees. See `priceVersion`.
+   * With `priceVersion: 2`, the 0.01-token sell quote after fees, scaled to one token.
+   * Older rows use the one-token sell quote before fees. See `priceVersion`.
    */
   priceLow: number;
   /**
-   * `2` when `price`, `priceHigh`, and `priceLow` have the meanings above. Then the
-   * prices come from pool quotes for the smallest order (0.01 token), scaled to one token.
-   * A larger order gets a worse price for each token. Use `amm.getQuote()` for the
-   * price of your order.
+   * Price semantics marker, separate from the pool's contract version. The API
+   * returns `2` only when the stored marker is `2` and `price > priceLow`.
+   * V2 refreshes sample the smallest order (0.01 token), scaled to one token.
+   * A larger order can get a worse price per token. Use `amm.getQuote()` for your order.
    *
-   * If the pool cannot quote a sell, `priceHigh`, `priceLow`, `price`, and
-   * `priceVersion` all keep their last values: the three prices change meaning together.
+   * If a V2 refresh cannot quote a sell, `priceHigh`, `priceLow`, `price`, and the
+   * stored `priceVersion` all keep their last values. If only the buy fails, the bid
+   * and market price still update, but the ask keeps its last value, even if it is
+   * an older one-token quote.
    * The prices follow the pool state. On a pool with few tokens, one trade can move
    * them a lot.
    *
-   * A V1 pool never has this field. Without it, the prices have the older meaning:
-   * - `priceHigh`: the pool quote to buy exactly one token, with the buy fees included
-   *   on a V2 pool. A V2 pool row keeps this meaning until a refresh can quote the sell.
-   * - `priceLow`: the pool quote to sell exactly one token, before the sell fees.
-   * - `price`: the same value as `priceLow`.
+   * V1 pools keep the older one-token prices and omit this field. Older V2 rows
+   * retain their previous tuple until a sell sample succeeds. Because the API also
+   * checks `price > priceLow`, an omitted marker alone does not guarantee a one-token
+   * sample. The public pool object does not expose `legacyPriceHigh`.
    */
   priceVersion?: 2;
   fees: AmmPoolFees;
@@ -719,7 +723,11 @@ export interface GetQuoteByTokenAmount {
 export interface GetQuoteByUsdcAmount {
   poolId: number;
   side: QuoteSide;
-  /** USDC amount */
+  /**
+   * Positive, finite USDC target for the pool payment or order-book total.
+   * Sells target proceeds before fees. Buys may charge additional fees; see `totalDebit`.
+   * Invalid amounts produce `LoftyError` with HTTP 400, code `invalid_field`, field `usdcAmount`.
+   */
   usdcAmount: number;
   tokenAmount?: never;
 }
@@ -732,16 +740,17 @@ interface AmmQuoteBase {
   /** Property tokens involved */
   tokenAmount: number;
   /**
-   * The raw pool payment or order-book total before swap/exchange fees. This is
-   * NOT the full wallet movement: fees are charged separately on top (buys) or
-   * out of the proceeds (sells). Use `totalDebit` (buys) / `netProceeds` (sells)
-   * for the amount that actually hits your wallet.
+   * Pool payment or order-book total. V2 AMM buys already include native buy fees;
+   * their additional `fees` are zero and `totalDebit` equals this amount. Other buys
+   * add fees, and sells deduct fees. Use `totalDebit` (buys) / `netProceeds` (sells)
+   * for the wallet amount.
    */
   usdcAmount: number;
   /**
-   * Fee breakdown charged in addition to `usdcAmount`. Pool quotes contain swap
-   * fees; paused order-book quotes contain the exchange fee in `platform`, with
-   * `lp` and `operatingReserve` set to zero.
+   * Additional fees added to buys or deducted from sells. V2 AMM buy fees are
+   * already included in `usdcAmount`, so all these fields are zero on those buys.
+   * Other pool quotes contain swap fees; paused order-book quotes contain the
+   * exchange fee in `platform`, with `lp` and `operatingReserve` set to zero.
    * Present on API deployments from 2026-07-21 onward.
    */
   fees?: {
@@ -754,7 +763,7 @@ interface AmmQuoteBase {
   totalDebit?: number;
   /** Sells only: net USDC you receive (`usdcAmount - fees.total`). */
   netProceeds?: number;
-  /** Effective price per token in USDC */
+  /** `usdcAmount / tokenAmount` in USDC; excludes additional fees, including sell fees. */
   usdcPerToken: number;
   /**
    * Reference price for `slippage` and `priceImpact`. An AMM quote uses the pool's

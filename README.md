@@ -659,16 +659,24 @@ for (const p of pools) {
 ```
 
 When a pool has `priceVersion: 2`, `priceHigh` is the ask (buy fees included) and
-`priceLow` is the bid (after the sell fees). `price` is the market price: their midpoint.
-These prices are for the smallest order (0.01 token), scaled to one token. Without
-`priceVersion`, `priceLow` is before the sell fees and `price` equals `priceLow`.
+`priceLow` is the bid (after the sell fees). V2 refreshes sample the smallest order
+(0.01 token), scaled to one token. After a successful sell sample, `price` is their
+midpoint only when the same refresh quotes a buy, the pool holds at least 0.1 token,
+and the ask exceeds the bid. Otherwise `price` is the sell sample before fees, scaled
+to one token.
 
-`price` is the midpoint only when the pool holds 0.1 token or more, can quote a buy, and
-has an ask above the bid. In each other case, `price` is the sell price before the sell
-fees. If the pool cannot quote a buy, `priceHigh` keeps its last value. If the pool cannot
-quote a sell, `priceHigh`, `priceLow`, `price`, and `priceVersion` all keep their last values.
+If a V2 refresh cannot quote a sell, `priceHigh`, `priceLow`, `price`, and the stored
+`priceVersion` all keep their last values, even if the buy succeeds. If only the buy
+fails, `priceHigh` keeps its last value while `priceLow` and `price` update. That
+retained ask can still be an older one-token quote, even with `priceVersion: 2`.
 
-A larger order gets a worse price for each token. On a pool with few tokens, one trade
+Older rows use one-token quotes: `priceHigh` includes buy fees on V2 and excludes
+them on V1; `priceLow` is before sell fees and `price` equals `priceLow`. V1 keeps
+these meanings. The public API returns `priceVersion: 2` only when the stored marker
+is `2` and `price > priceLow`, so an omitted marker alone does not guarantee a
+one-token sample. The public pool object does not expose `legacyPriceHigh`.
+
+A larger order can get a worse price for each token. On a pool with few tokens, one trade
 can move these prices a lot. Use `amm.getQuote()` for the price of your order.
 
 While pool trading is paused this throws `LoftyError` with `code: 'amm_trading_paused'` —
@@ -701,7 +709,7 @@ Get an executable price quote. Pass **either** `tokenAmount` or `usdcAmount`. Ch
 ```typescript
 // Cost to buy 10 tokens
 const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', tokenAmount: 10 });
-// q.usdcAmount  → exact USDC cost
+// q.totalDebit → USDC paid, including fees
 // q.usdcPerToken → effective price per token
 // q.slippage    → % vs reference price (positive = paying a premium)
 // q.source      → 'amm' | 'orderbook'
@@ -709,7 +717,7 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', tokenAmount: 10 }
 // How many tokens $500 buys
 const q = await lofty.amm.getQuote({ poolId: 123, side: 'buy', usdcAmount: 500 });
 // q.tokenAmount → tokens you'll receive
-// q.usdcAmount  → actual USDC spent (≤ your input, rounded to achievable token qty)
+// q.usdcAmount  → quoted payment (≤ your input); check q.totalDebit for fees
 
 // USDC received for selling 5 tokens
 const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', tokenAmount: 5 });
@@ -724,19 +732,24 @@ const q = await lofty.amm.getQuote({ poolId: 123, side: 'sell', usdcAmount: 200 
 |-------|-------------|
 | `tokenAmount` | Property tokens involved |
 | `usdcAmount` | Pool payment or order-book total. On a sell, it is before the fees; `netProceeds` is the amount received. On a buy, `totalDebit` is the amount paid. |
-| `usdcPerToken` | Effective exchange rate |
+| `usdcPerToken` | `usdcAmount / tokenAmount`; excludes additional fees, including sell fees |
 | `referencePrice` | Comparison price: pool `priceHigh` on buys, `priceLow` on sells (`source: 'amm'`), or top of book — best ask on buys, best bid on sells (`source: 'orderbook'`). On a sell from a pool with `priceVersion: 2`, `slippage` and `priceImpact` compare `netProceeds` with it; all other quotes compare `usdcAmount`. |
 | `slippage` | `%` deviation from reference price. Buy: positive = paid more than reference. Sell: negative = received less than reference. |
 | `priceImpact` | Per-token USDC difference vs reference (negative impact is favorable for buys) |
-| `fees` | Fee breakdown. Same shape in both modes; order-book quotes carry the exchange fee in `platform` with `lp`/`operatingReserve` at 0. |
+| `fees` | Additional fees added to buys or deducted from sells. V2 AMM buys already include native buy fees in `usdcAmount`, so these fields are all zero and `totalDebit` equals `usdcAmount`. Order-book quotes carry the exchange fee in `platform` with `lp`/`operatingReserve` at 0. |
 | `totalDebit` / `netProceeds` | What your wallet is actually debited (buys) / receives (sells), fees included |
 | `source` | `'amm'` or `'orderbook'` — which venue priced this quote |
 | `tradingPaused` | Present and `true` on order-book quotes served while pool trading is paused |
 
-> **Note on `usdcAmount` queries:** With `source: 'amm'`, the API converges on the
-> closest achievable token quantity using 2–4 on-chain calls; the returned `usdcAmount`
-> may differ slightly from your input. With `source: 'orderbook'`, your budget is walked
-> directly down the book.
+`usdcAmount` must be positive and finite. Otherwise the call throws `LoftyError`
+with `statusCode: 400`, `code: 'invalid_field'`, and `field: 'usdcAmount'`.
+
+With `source: 'amm'`, dollar queries use a bounded search for a positive live quote
+whose `usdcAmount` is at most your input. The result may be lower, including when
+pool capacity is limited. If the reference price is unavailable or the search finds
+no positive quote within that amount, the call throws `LoftyError` with
+`statusCode: 409` and `code: 'quote_unavailable'`. Try a smaller amount or request a
+`tokenAmount` quote. With `source: 'orderbook'`, the amount is walked down the book.
 
 #### `.executeSwap(params, idempotencyKey?)`
 
@@ -906,6 +919,8 @@ Check `error.code` on `LoftyError` for these:
 | Code | Status | Meaning |
 |------|--------|---------|
 | `amm_trading_paused` | 409 | AMM pool venue is temporarily unavailable — use the order-book methods (`properties.getOrderBook`, `properties.getTrades`, `amm.getQuote`, `orders.create`) |
+| `invalid_field` | 400 | Invalid input; `amm.getQuote` requires a positive, finite `usdcAmount` and identifies it in `error.field` |
+| `quote_unavailable` | 409 | An AMM dollar quote has no usable reference price or no positive quote within the requested amount; try a smaller amount or enter `tokenAmount` |
 | `insufficient_book_liquidity` / `no_book_liquidity` | 409 | The order book can't cover the requested size; the message says how much can fill |
 | `order_in_progress` | 409 | Another order for this property is mid-flight; retry shortly |
 | `order_rejected` | 400 | Order failed validation; the message has the reason |
