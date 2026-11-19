@@ -443,11 +443,22 @@ export interface AccountBalance {
 export type WithdrawSource = 'rent' | 'wallet';
 export type WithdrawDestination = 'bank' | 'usdc';
 
-export type WithdrawParams = {
+/**
+ * Whose name a bank withdrawal is paid in. `personal` = the person on the
+ * account. `business` = the account's business entity. Pick the name on the
+ * receiving bank account: a mismatch usually makes the bank return the transfer.
+ */
+export type PayoutPayee = 'personal' | 'business';
+
+/** A payee this account can use, with the exact name the bank payout carries. */
+export type PayoutPayeeOption = {
+  payee: PayoutPayee;
+  name: string;
+};
+
+type WithdrawBaseParams = {
   /** `rent` = rental-income ledger. `wallet` = Lofty USDC wallet cash. */
   source: WithdrawSource;
-  /** `bank` = ACH to a linked US bank. `usdc` = Algorand USDC only. */
-  destination: WithdrawDestination;
   /** USD amount. Bank minimum $1; USDC minimum $0.05. */
   amount: number;
   /** Saved bank id from `listWithdrawals().destinations.bankAccounts`, or `legacy`. */
@@ -459,12 +470,34 @@ export type WithdrawParams = {
   destinationAddress?: string;
 };
 
+/** ACH to a linked US bank. */
+export type BankWithdrawParams = WithdrawBaseParams & {
+  /** `bank` = ACH to a linked US bank. */
+  destination: 'bank';
+  /**
+   * Required. One of `listWithdrawals().destinations.payoutPayees[].payee`.
+   * An account without a business always passes `'personal'`.
+   */
+  payoutPayee: PayoutPayee;
+};
+
+/** Algorand USDC. A USDC payout has no payee: do not pass `payoutPayee`. */
+export type UsdcWithdrawParams = WithdrawBaseParams & {
+  /** `usdc` = Algorand USDC only. */
+  destination: 'usdc';
+  payoutPayee?: never;
+};
+
+export type WithdrawParams = BankWithdrawParams | UsdcWithdrawParams;
+
 export type WithdrawResponse = {
   amount: number;
   source: WithdrawSource;
   destination: WithdrawDestination;
   destinationAddress?: string;
   bankAccountId?: string;
+  /** Bank withdrawals only: the name the payout is paid in. */
+  payoutPayee?: PayoutPayee;
 };
 
 export type WithdrawalRecord = {
@@ -478,6 +511,8 @@ export type WithdrawalRecord = {
   paymentType?: string;
   paymentSubtype?: string;
   transferMethod?: string;
+  /** Bank withdrawals only: whose name the payout was paid in. */
+  payoutPayee?: PayoutPayee;
 };
 
 export type BankAccountSummary = {
@@ -492,6 +527,11 @@ export type WithdrawalDestinations = {
   bankAccounts: BankAccountSummary[];
   usdcReceivingWallet: string | null;
   loftyWalletAddress: string | null;
+  /**
+   * Valid `payoutPayee` values for a bank withdrawal, with the name each pays.
+   * An account without a business lists only `personal`.
+   */
+  payoutPayees: PayoutPayeeOption[];
 };
 
 export type PayoutMethod = {

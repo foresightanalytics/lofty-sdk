@@ -125,6 +125,11 @@ export class AccountResource {
    * Withdraw rental income or Lofty wallet cash to a linked US bank (ACH) or
    * to an Algorand USDC address. Requires trading enabled. Test keys are rejected.
    *
+   * Bank withdrawals require `payoutPayee` (`'personal'` or `'business'`): the
+   * name on the receiving bank account. `listWithdrawals().destinations.payoutPayees`
+   * lists the values this account can use; an account without a business can
+   * only use `'personal'`. USDC withdrawals must not pass `payoutPayee`.
+   *
    * Cross-chain USDC outbound (Circle / other networks) is not available.
    */
   async withdraw(params: WithdrawParams, idempotencyKey?: string): Promise<WithdrawResponse> {
@@ -149,6 +154,21 @@ export class AccountResource {
         field: 'amount',
       });
     }
+    const { payoutPayee } = params as { payoutPayee?: unknown; };
+    if (params.destination === 'bank' && payoutPayee !== 'personal' && payoutPayee !== 'business') {
+      throw new LoftyError(400, {
+        code: payoutPayee === undefined ? 'missing_field' : 'invalid_field',
+        message: 'payoutPayee must be "personal" or "business" for bank withdrawals.',
+        field: 'payoutPayee',
+      });
+    }
+    if (params.destination === 'usdc' && payoutPayee !== undefined) {
+      throw new LoftyError(400, {
+        code: 'invalid_field',
+        message: 'payoutPayee applies only to bank withdrawals.',
+        field: 'payoutPayee',
+      });
+    }
     const destinationAddress = params.destinationAddress !== undefined
       ? String(params.destinationAddress).trim()
       : undefined;
@@ -166,6 +186,7 @@ export class AccountResource {
         destination: params.destination,
         amount: params.amount,
         bankAccountId: params.bankAccountId,
+        payoutPayee: params.destination === 'bank' ? params.payoutPayee : undefined,
         destinationAddress,
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),

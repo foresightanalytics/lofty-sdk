@@ -38,6 +38,14 @@ test('withdraw sends source/destination/amount and never a client userId', async
   assert.equal(calls[0].body.amount, 12.5);
   assert.equal(calls[0].body.destinationAddress, VALID_ADDR);
   assert.equal(calls[0].body.userId, undefined);
+  assert.equal('payoutPayee' in calls[0].body, false);
+});
+
+test('bank withdraw sends the required payoutPayee', async () => {
+  const calls = capture();
+  await client().account.withdraw({ source: 'rent', destination: 'bank', amount: 50, payoutPayee: 'business', bankAccountId: 'bk_1' });
+  assert.equal(calls[0].body.payoutPayee, 'business');
+  assert.equal(calls[0].body.bankAccountId, 'bk_1');
 });
 
 test('withdraw trims destinationAddress before sending', async () => {
@@ -68,11 +76,26 @@ test('withdraw rejects a bad Algorand destination locally', async () => {
 test('withdraw rejects a non-positive amount locally', async () => {
   const calls = capture();
   await assert.rejects(
-    client().account.withdraw({ source: 'rent', destination: 'bank', amount: 0 }),
+    client().account.withdraw({ source: 'rent', destination: 'bank', amount: 0, payoutPayee: 'personal' }),
     (err) => err instanceof LoftyError && err.code === 'invalid_field',
   );
   assert.equal(calls.length, 0);
 });
+
+for (const [label, params, code] of [
+  ['a bank withdrawal without payoutPayee', { destination: 'bank' }, 'missing_field'],
+  ['a bank withdrawal with an unknown payoutPayee', { destination: 'bank', payoutPayee: 'company' }, 'invalid_field'],
+  ['a USDC withdrawal with payoutPayee', { destination: 'usdc', payoutPayee: 'personal' }, 'invalid_field'],
+]) {
+  test(`withdraw rejects ${label} locally`, async () => {
+    const calls = capture();
+    await assert.rejects(
+      client().account.withdraw({ source: 'rent', amount: 10, ...params }),
+      (err) => err instanceof LoftyError && err.code === code && err.field === 'payoutPayee',
+    );
+    assert.equal(calls.length, 0);
+  });
+}
 
 test('addBankAccount posts action add_bank after sanitizing digits', async () => {
   const calls = capture();

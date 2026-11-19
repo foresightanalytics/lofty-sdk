@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0
+
+### Bank withdrawal payee (breaking)
+
+- `account.withdraw({ destination: 'bank' })` now requires `payoutPayee: 'personal' | 'business'`:
+  whose name the ACH transfer is paid in. Use the name on the receiving bank account; a
+  mismatch usually makes the receiving bank return the transfer.
+- `listWithdrawals().destinations.payoutPayees` lists the payees the account can use, with the
+  exact name each pays. An account without a business lists only `personal` and always passes
+  `payoutPayee: 'personal'`.
+- `WithdrawParams` is now a union of `BankWithdrawParams` (requires `payoutPayee`) and
+  `UsdcWithdrawParams` (rejects it). New exported types: `PayoutPayee`, `PayoutPayeeOption`.
+- Local guards raise `LoftyError` `400` with `field: 'payoutPayee'`: `missing_field` (bank
+  without it) and `invalid_field` (unknown value, or passed on a USDC withdrawal). The API
+  answers `400 payout_payee_unavailable` when the account can't use the named payee; no
+  withdrawal is created.
+- Bank withdrawal responses and withdrawal records include `payoutPayee`.
+- Requires the matching backend release. After it ships, bank withdrawals from SDK versions
+  before 0.11.0 are rejected with `400 missing_field` until they pass `payoutPayee`.
+
 ## 0.10.0
 
 ### AMM response unions (type-level breaking change)
