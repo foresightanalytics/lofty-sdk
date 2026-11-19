@@ -577,11 +577,17 @@ do {
 
 #### `.listWithdrawals(params?)`
 
-Recent withdrawals plus payout destinations (masked bank last-4, saved USDC wallet, Lofty wallet) and method minimums.
+Recent withdrawals plus payout destinations (masked bank last-4, saved USDC wallet, Lofty wallet, the payees bank withdrawals can use) and method minimums.
 
 ```typescript
 const { withdrawals, destinations, methods } = await lofty.account.listWithdrawals();
+
+destinations.payoutPayees;
+// Account with a business:    [{ payee: 'personal', name: 'Jane Doe' }, { payee: 'business', name: 'Example Holdings LLC' }]
+// Account without a business: [{ payee: 'personal', name: 'Jane Doe' }]
 ```
+
+Each bank withdrawal record also carries the `payoutPayee` it was paid as.
 
 USDC payouts are **Algorand only**. Inbound USDC on other chains (Unifold) is `users.getDepositAddresses` for partner-onboarded users.
 
@@ -604,12 +610,26 @@ Withdraw rental income (`source: 'rent'`) or Lofty wallet cash (`source: 'wallet
 
 Bank minimum is $1. USDC minimum is $0.05. Pass `destinationAddress` to send USDC to an external Algorand wallet that is opted into USDC. Cross-chain USDC outbound (Circle / other networks) is not available.
 
+**Upgrade:** SDK 0.11.0 makes `payoutPayee` required on bank withdrawals and needs the matching backend release. Once that release is live, bank withdrawals that omit `payoutPayee` (including every call from older SDK versions) fail with `400 missing_field`. USDC withdrawals are unchanged.
+
+**Bank withdrawals require `payoutPayee`** — whose name the ACH transfer is paid in:
+
+| Value | Paid to |
+|-------|---------|
+| `'personal'` | The person on the account (for a business account, its verified representative) |
+| `'business'` | The account's business entity |
+
+Use the name on the receiving bank account. When it doesn't match, the receiving bank usually returns the transfer. `destinations.payoutPayees` from `listWithdrawals()` lists the values this account can use and the exact name each one pays. An account without a business lists only `personal`, so its bank withdrawals always pass `payoutPayee: 'personal'`. USDC withdrawals have no payee and must not pass the field.
+
 ```typescript
+const { destinations } = await lofty.account.listWithdrawals();
+
 await lofty.account.withdraw({
   source: 'rent',
   destination: 'bank',
   amount: 50,
   bankAccountId: destinations.bankAccounts[0].id,
+  payoutPayee: 'business', // must be one of destinations.payoutPayees[].payee
 });
 
 await lofty.account.withdraw({
@@ -619,6 +639,14 @@ await lofty.account.withdraw({
   destinationAddress: 'ALGORANDADDRESS...',
 });
 ```
+
+`payoutPayee` errors are `LoftyError` with `statusCode: 400` and `field: 'payoutPayee'`. The SDK raises the first two locally, before any request:
+
+| Code | When |
+|------|------|
+| `missing_field` | A bank withdrawal has no `payoutPayee`. |
+| `invalid_field` | The value is not `'personal'` or `'business'`, or it was passed on a USDC withdrawal. |
+| `payout_payee_unavailable` | The account can't be paid in that name (for example `'business'` on an account without a business). No withdrawal is created; `error.hint` points to `destinations.payoutPayees`. |
 
 ---
 
@@ -920,6 +948,7 @@ Check `error.code` on `LoftyError` for these:
 |------|--------|---------|
 | `amm_trading_paused` | 409 | AMM pool venue is temporarily unavailable — use the order-book methods (`properties.getOrderBook`, `properties.getTrades`, `amm.getQuote`, `orders.create`) |
 | `invalid_field` | 400 | Invalid input; `amm.getQuote` requires a positive, finite `usdcAmount` and identifies it in `error.field` |
+| `payout_payee_unavailable` | 400 | A bank withdrawal named a `payoutPayee` this account can't use; pick one from `listWithdrawals().destinations.payoutPayees` |
 | `quote_unavailable` | 409 | An AMM dollar quote has no usable reference price or no positive quote within the requested amount; try a smaller amount or enter `tokenAmount` |
 | `insufficient_book_liquidity` / `no_book_liquidity` | 409 | The order book can't cover the requested size; the message says how much can fill |
 | `order_in_progress` | 409 | Another order for this property is mid-flight; retry shortly |

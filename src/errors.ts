@@ -14,6 +14,7 @@ export type LoftyErrorCode =
   | 'order_not_owned'
   | 'order_locked'
   | 'conflict'
+  | 'payout_payee_unavailable'
   | 'internal_error'
   | (string & {});
 
