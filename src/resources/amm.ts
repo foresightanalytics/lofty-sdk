@@ -21,8 +21,16 @@ export class AmmResource {
   constructor(private readonly client: LoftyClient) {}
 
   /**
-   * List all active AMM pools.
-   * Pass `propertyId` to find the pool for a specific property.
+   * List the AMM pools your account can trade.
+   * Pass `propertyId` to find the current pool of one property.
+   *
+   * `settlementCurrency` is the asset your account settles in. A USDC account also sees pools
+   * that quote USDL: the quote converts 1:1 at execution. Trade those pools with a market order
+   * (`orders.create({ orderType: 'market' })`).
+   *
+   * @throws {LoftyError} `404 pool_not_found` when `propertyId` has no current pool for your
+   * account (the call does not return an empty list or `null`); `409 amm_trading_paused` when
+   * only a paused earlier-generation pool exists, or when no pool is available at all.
    *
    * @example
    * // All pools
@@ -30,7 +38,7 @@ export class AmmResource {
    *
    * // Pool for a specific property
    * const { pools } = await lofty.amm.listPools({ propertyId: 'prop_123' });
-   * const pool = pools[0]; // null if no AMM pool for this property
+   * const pool = pools[0]; // Always present: a missing pool throws 404 pool_not_found.
    */
   async listPools(params: { propertyId?: string } = {}): Promise<ListAmmPoolsResponse> {
     return this.client._request<ListAmmPoolsResponse>('GET', '/public/v1/amm/pools', {
@@ -83,14 +91,20 @@ export class AmmResource {
    * Execute a swap on the AMM pool, or place a limit order on the book while
    * pool trading is paused. Trading must be enabled on your API key.
    *
+   * @deprecated Use `orders.create({ orderType: 'market' })` with `orders.getMarketQuote()`. The
+   * market order uses the order book and the pool, checks the order grid and minimum, and gives
+   * every rejection a final status. A USDC account on a pool that quotes USDL gets
+   * `409 use_market_order` here. This method stays for accounts that already use it.
+   *
    * Narrow the response on `routedTo` or `tradingPaused`: pool execution returns
    * a `batchId`; book routing returns an `orderId` and order details instead.
    * A book-routed order may partially fill and is not an atomic pool swap.
    *
    * For buys, `maxUsdcAmount` is required — it sets your slippage tolerance.
    * Get the expected cost first with `getQuote()`, then add a small buffer.
-   * The cap covers the pool payment (`quote.usdcAmount`); swap fees are charged
-   * on top, so ensure your wallet balance covers `quote.totalDebit`.
+   * The cap covers the pool payment (`quote.usdcAmount`). On a pool from before
+   * `pmmVersion: 'v2'`, swap fees are charged on top, so ensure your wallet balance
+   * covers `quote.totalDebit`.
    *
    * @example
    * // Buy 10 tokens, willing to pay up to $540
@@ -103,13 +117,14 @@ export class AmmResource {
    * });
    *
    * @example
-   * // Sell 5 tokens, requiring at least $255 back (minUsdcAmount is REQUIRED for sells)
+   * // Sell 5 tokens with a floor on what you receive (minUsdcAmount is REQUIRED for sells).
+   * // On a v2 pool the floor applies to the proceeds after fees, so base it on netProceeds.
    * const quote = await lofty.amm.getQuote({ poolId: 123, side: 'sell', tokenAmount: 5 });
    * const result = await lofty.amm.executeSwap({
    *   poolId: 123,
    *   side: 'sell',
    *   tokenAmount: 5,
-   *   minUsdcAmount: quote.usdcAmount * 0.98, // 2% slippage tolerance
+   *   minUsdcAmount: (quote.netProceeds ?? quote.usdcAmount) * 0.98, // 2% slippage tolerance
    * });
    */
   async executeSwap(params: ExecuteSwapParams, idempotencyKey?: string): Promise<ExecuteSwapResponse> {

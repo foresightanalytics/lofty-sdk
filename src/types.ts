@@ -277,9 +277,65 @@ interface CreateOrderBase {
 
 /** Market execution requires an explicit slippage limit; no dollar or percentage default applies. */
 export type CreateOrderParams = CreateOrderBase & (
-  | { orderType: 'market'; maxSlippageBps: number; price?: never; expireAt?: never; useGift?: never; useRent?: never; triggerPrice?: never; triggerLimitPrice?: never; trailPercent?: never; referenceWindowDays?: never; }
-  | { orderType?: Exclude<OrderType, 'market'>; maxSlippageBps?: never; }
+  | {
+    orderType: 'market'; maxSlippageBps: number;
+    /**
+     * Optional total in US dollars that the order must not be worse than: the most a buy pays, or
+     * the least a sell receives, fees included. Pass `boundTotal` from `orders.getMarketQuote()`.
+     * The API finds the route again at order time. When that route is worse than `limitTotal`, it
+     * answers `409 slippage_exceeded` and starts nothing. The limit can only make the bound
+     * tighter than `maxSlippageBps` allows.
+     */
+    limitTotal?: number;
+    price?: never; expireAt?: never; useGift?: never; useRent?: never; triggerPrice?: never; triggerLimitPrice?: never; trailPercent?: never; referenceWindowDays?: never;
+  }
+  | { orderType?: Exclude<OrderType, 'market'>; maxSlippageBps?: never; limitTotal?: never; }
 );
+
+/**
+ * Conversion state of a trade on a pool that quotes USDL, for an account that settles in USDC.
+ * - `not_applicable`: the trade has no conversion (order book, a pool in the account's own asset,
+ *   or a trade that did not execute).
+ * - `pending`: the conversion has not finished.
+ * - `settled`: the account holds the result in its own asset.
+ * - `held`: the conversion of a sell waits for review. The sale itself is final. Contact support.
+ */
+export type QuoteSettlementStatus = 'pending' | 'settled' | 'held' | 'not_applicable';
+
+export interface GetMarketQuoteParams {
+  propertyId: string;
+  direction: OrderDirection;
+  /** Number of tokens. The same grid and minimum as `orders.create()`. */
+  quantity: number;
+  /** Optional. With it, the response includes `slippageBound` for the same value on `orders.create()`. */
+  maxSlippageBps?: number;
+}
+
+/** The route a market order placed now would take. A quote reserves nothing and creates no order. */
+export interface GetMarketQuoteResponse {
+  propertyId: string;
+  direction: OrderDirection;
+  quantity: number;
+  /** `book`: order book only. `pmm`: pool only. `split`: both. */
+  route: 'book' | 'pmm' | 'split';
+  bookQuantity: number;
+  poolQuantity: number;
+  /** Worst book price of the route. `null` when the route has no book part. */
+  bookPrice: number | null;
+  /** The pool of the route. `null` when the route has no pool part. */
+  poolId: number | null;
+  /** Expected total in dollars, trading fees included: what a buy pays or a sell receives. */
+  quotedTotal: number;
+  /** Worst total this route can settle at before pool slippage. Pass it as `limitTotal`. */
+  boundTotal: number;
+  /** Total if the pool filled the full quantity. `null` when the pool cannot. */
+  poolOnlyTotal: number | null;
+  settlementCurrency: 'USDC' | 'LUSDC';
+  /** Present when the request had `maxSlippageBps`: the bound `orders.create()` would enforce. */
+  slippageBound?: number;
+  /** Unix ms. Prices move: quote again before you place an order with an old quote. */
+  quotedAt: number;
+}
 
 export interface CreateOrderResponse {
   orderId: string;
@@ -307,6 +363,8 @@ export interface MarketOrder {
   expireAt: number;
   bookOrderId?: string;
   batchId?: string;
+  /** Conversion state of the pool part. See {@link QuoteSettlementStatus}. */
+  quoteSettlementStatus?: QuoteSettlementStatus;
 }
 
 export interface GetOrderResponse {
@@ -415,6 +473,8 @@ export interface SwapStatus {
   /** Present only when `state: 'failed'`. */
   failureReason?: string;
   createdAt?: number;
+  /** Conversion state of the swap. See {@link QuoteSettlementStatus}. */
+  quoteSettlementStatus?: QuoteSettlementStatus;
 }
 
 export interface GetSwapStatusResponse {
@@ -680,6 +740,13 @@ export interface AmmPool {
   poolId: number;
   propertyId: string;
   active: boolean;
+  /** Present on a current-generation pool. A pool from before it omits this field. */
+  pmmVersion?: 'v2';
+  /**
+   * Side switches from the saved pool state, on a `pmmVersion: 'v2'` pool. `amm.getQuote()` and
+   * `orders.getMarketQuote()` read the live switches, so a quote is the authority.
+   */
+  controls?: { buyEnabled: boolean; sellEnabled: boolean };
   /**
    * Market price (USDC per token) when `priceVersion` is `2`. After a successful
    * sell sample, it is the midpoint of `priceHigh` and `priceLow` only when the same
@@ -738,16 +805,26 @@ export interface AmmPool {
   };
   apy7d: { base: number; quote: number };
   apy30d: { base: number; quote: number } | null;
+  totalReturn?: { base: number; quote: number } | null;
+  cumulativeApy?: { base: number; quote: number } | null;
   vol24h: { buys: number; sells: number };
   vol7d: { buys: number; sells: number };
 }
 
 export interface ListAmmPoolsResponse {
   pools: AmmPool[];
+  /**
+   * The asset your account settles in. A USDC account also sees pools that quote USDL
+   * (`assets.quote`): the quote converts 1:1 at execution. Trade those pools with a market
+   * order (`orders.create({ orderType: 'market' })`), not with `amm.executeSwap()`.
+   */
+  settlementCurrency?: 'USDC' | 'LUSDC';
 }
 
 export interface GetAmmPoolResponse {
   pool: AmmPool;
+  /** See {@link ListAmmPoolsResponse.settlementCurrency}. */
+  settlementCurrency?: 'USDC' | 'LUSDC';
 }
 
 export type QuoteSide = 'buy' | 'sell';
@@ -847,20 +924,22 @@ export interface ExecuteSwapParams {
   /** Number of property tokens to buy or sell */
   tokenAmount: number;
   /**
-   * Buys only — REQUIRED. Maximum USDC to spend; slippage cap enforced on-chain.
-   * Get the expected cost from `getQuote()` then add a small buffer (e.g. 1–2%).
-   * NOTE: the cap applies to the POOL PAYMENT (`quote.usdcAmount`), not
-   * `quote.totalDebit` — swap fees are charged on top of it, so your wallet
-   * must cover `totalDebit`, not just this cap.
+   * Buys only — REQUIRED. Maximum to spend, in dollars of your settlement asset; the cap is
+   * enforced on-chain. Get the expected cost from `getQuote()` then add a small buffer (e.g. 1–2%).
+   * The cap applies to the POOL PAYMENT (`quote.usdcAmount`). On a `pmmVersion: 'v2'` pool that
+   * payment already includes the fees, so it equals `quote.totalDebit`. On a pool from before it,
+   * fees are charged on top: your wallet must cover `quote.totalDebit`, not only this cap.
    */
   maxUsdcAmount?: number;
   /**
-   * Sells only — REQUIRED. Minimum USDC floor; slippage floor enforced by
-   * the API immediately before execution. Get the quote from `getQuote()`
-   * then subtract your tolerance (e.g. 1–2%). Without it the API rejects the sell.
-   * NOTE: the floor applies to the POOL PAYMENT (`quote.usdcAmount`), not your
-   * net proceeds — swap fees are deducted after, so you receive
-   * `quote.netProceeds`, not the pool payment.
+   * Sells only — REQUIRED. Minimum to receive, in dollars of your settlement asset. Without it
+   * the API rejects the sell. Get the quote from `getQuote()` then subtract your tolerance
+   * (e.g. 1–2%).
+   * On a `pmmVersion: 'v2'` pool the floor applies to what you RECEIVE AFTER FEES
+   * (`quote.netProceeds`), and the pool contract enforces it. Base it on `quote.netProceeds`:
+   * a floor based on `quote.usdcAmount` is above the proceeds and the sell is refused.
+   * On a pool from before it, the floor applies to the pool payment (`quote.usdcAmount`) and the
+   * API checks it immediately before execution.
    */
   minUsdcAmount?: number;
 }

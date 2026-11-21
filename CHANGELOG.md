@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.12.0
+
+### Current pools for USDC accounts, market quote (ENG-10967)
+
+Requires the matching backend release. Before it, `amm.listPools()`, `amm.getPool()` and
+`amm.getQuote()` answered `409 amm_trading_paused` or `404` for every USDC account, also
+for properties that have a live pool.
+
+- `amm.listPools()`, `amm.getPool()` and `amm.getQuote()` now answer for the current
+  (`pmmVersion: 'v2'`) pools for USDC accounts and USDL accounts. Most of these pools quote
+  USDL; for a USDC account the quote converts 1:1 at execution. Pool responses include
+  `settlementCurrency`, and a v2 pool includes `controls: { buyEnabled, sellEnabled }`.
+  `AmmPool` also types `totalReturn` and `cumulativeApy`, which the API already returned.
+- New `orders.getMarketQuote({ propertyId, direction, quantity, maxSlippageBps? })`: the route
+  (`book`, `pmm`, `split`) and totals of a market order placed now. It creates nothing.
+- `orders.create({ orderType: 'market' })` accepts optional `limitTotal` (dollars). Pass
+  `boundTotal` from the market quote. The API answers `409 slippage_exceeded` and starts nothing
+  when the route at order time is worse.
+- `MarketOrder` and `SwapStatus` include `quoteSettlementStatus`:
+  `not_applicable | pending | settled | held`.
+- `amm.executeSwap()` is deprecated. Use market orders. A USDC account on a pool that quotes
+  USDL gets `409 use_market_order`. USDL accounts and paused-pool book routing keep working.
+- New exported types: `GetMarketQuoteParams`, `GetMarketQuoteResponse`, `QuoteSettlementStatus`,
+  `SwapState`, `SwapStatus`, `GetSwapStatusResponse`.
+
+### Behavior changes to check
+
+- A market order that the market cannot fill now answers `409 insufficient_liquidity`
+  (before: `400`). `trading_disabled` is `409`. A route that cannot be verified answers
+  `503 quote_unavailable` (before: `500`). The codes did not change; branch on `error.code`.
+- `amm.listPools({ propertyId })` answers `404 pool_not_found` when the property has no current
+  pool for your account. The earlier doc comment said `null`; the API never returned that.
+- A v2 pool that is inactive, spun down or replaced is `404 pool_not_found`, not
+  `409 amm_trading_paused`.
+- `amm.getQuote()` on a v2 pool answers `409 pool_buy_disabled` / `409 pool_sell_disabled`
+  when that side is off, and `409 quote_unavailable` when the pool cannot price the amount.
+  A failed pool simulation no longer returns `500` with contract text.
+- `amm.executeSwap()` sells on a v2 pool: `minUsdcAmount` is compared with the proceeds after
+  fees (`quote.netProceeds`). A floor based on `quote.usdcAmount` is refused.
+- `amm.getQuote()` and `orders.getMarketQuote()` share a lower rate limit than other reads.
+- A market order or swap that the pool refuses before it starts now gets a `4xx` (or
+  `503 pool_unavailable`) and a final `cancelled` state. Before, it could stay in
+  `execution_unknown`. You can retry it with the same idempotency key.
+
 ## 0.11.0
 
 ### Bank withdrawal payee (breaking)
