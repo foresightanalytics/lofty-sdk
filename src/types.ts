@@ -281,7 +281,9 @@ export type CreateOrderParams = CreateOrderBase & (
     orderType: 'market'; maxSlippageBps: number;
     /**
      * Optional total in US dollars that the order must not be worse than: the most a buy pays, or
-     * the least a sell receives, fees included. Pass `boundTotal` from `orders.getMarketQuote()`.
+     * the least a sell receives, fees included. Pass `slippageBound` from `orders.getMarketQuote()`
+     * (request the quote with the same `maxSlippageBps`) to keep your slippage allowance.
+     * `boundTotal` allows no pool slippage: with it, any pool price move refuses the order.
      * The API finds the route again at order time. When that route is worse than `limitTotal`, it
      * answers `409 slippage_exceeded` and starts nothing. The limit can only make the bound
      * tighter than `maxSlippageBps` allows.
@@ -326,12 +328,18 @@ export interface GetMarketQuoteResponse {
   poolId: number | null;
   /** Expected total in dollars, trading fees included: what a buy pays or a sell receives. */
   quotedTotal: number;
-  /** Worst total this route can settle at before pool slippage. Pass it as `limitTotal`. */
+  /**
+   * Worst total of this route with no pool slippage (for a pool-only route it equals `quotedTotal`).
+   * As `limitTotal` it gives the pool leg no room to move. Use `slippageBound` to keep your allowance.
+   */
   boundTotal: number;
   /** Total if the pool filled the full quantity. `null` when the pool cannot. */
   poolOnlyTotal: number | null;
   settlementCurrency: 'USDC' | 'LUSDC';
-  /** Present when the request had `maxSlippageBps`: the bound `orders.create()` would enforce. */
+  /**
+   * Present when the request had `maxSlippageBps`: the bound `orders.create()` would enforce.
+   * Pass it as `limitTotal` to keep that slippage allowance.
+   */
   slippageBound?: number;
   /** Unix ms. Prices move: quote again before you place an order with an old quote. */
   quotedAt: number;

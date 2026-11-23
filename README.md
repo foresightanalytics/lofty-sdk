@@ -429,14 +429,17 @@ Quote first, then place the order with the quote as a limit:
 const quote = await lofty.orders.getMarketQuote({
   propertyId: 'PROPERTY_ID', direction: 'sell', quantity: 0.1, maxSlippageBps: 100,
 });
-console.log(quote.route, quote.quotedTotal, quote.boundTotal); // 'book' | 'pmm' | 'split'
+console.log(quote.route, quote.quotedTotal, quote.slippageBound); // 'book' | 'pmm' | 'split'
 
 await lofty.orders.create({
   propertyId: 'PROPERTY_ID', direction: 'sell', quantity: 0.1,
   orderType: 'market', maxSlippageBps: 100,
-  limitTotal: quote.boundTotal, // optional: refuse the order if the route is now worse
+  limitTotal: quote.slippageBound, // optional: refuse the order if the route is now worse than this
 });
 ```
+
+`slippageBound` is the quoted total plus your `maxSlippageBps` allowance. `boundTotal` has no pool
+slippage in it: as `limitTotal` it refuses the order after any pool price move.
 
 `getMarketQuote()` reserves nothing and creates no order. With `limitTotal`, the API finds the
 route again at order time and answers `409 slippage_exceeded` when it is worse than the limit

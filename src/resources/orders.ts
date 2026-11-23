@@ -206,8 +206,10 @@ export class OrdersResource {
    * Quote a market order without placing it: the route (`book`, `pmm` or `split`) and the total
    * that `orders.create({ orderType: 'market' })` would get now. It reserves nothing.
    *
-   * Pass `boundTotal` as `limitTotal` on `orders.create()`: the order is then refused with
-   * `409 slippage_exceeded` when the route at order time is worse than this quote.
+   * Request the quote with `maxSlippageBps` and pass its `slippageBound` as `limitTotal` on
+   * `orders.create()`: the order is then refused with `409 slippage_exceeded` when the route at
+   * order time is worse than the quote plus your slippage allowance. `boundTotal` has no pool
+   * slippage in it. As `limitTotal` it refuses the order after any pool price move.
    *
    * Quotes have their own rate limit, lower than other reads. Quote when you are ready to trade.
    *
@@ -219,7 +221,7 @@ export class OrdersResource {
    * console.log(quote.route, quote.quotedTotal);
    * await lofty.orders.create({
    *   propertyId: 'PROPERTY_ID', direction: 'buy', quantity: 2,
-   *   orderType: 'market', maxSlippageBps: 100, limitTotal: quote.boundTotal,
+   *   orderType: 'market', maxSlippageBps: 100, limitTotal: quote.slippageBound,
    * });
    */
   async getMarketQuote(params: GetMarketQuoteParams): Promise<GetMarketQuoteResponse> {

@@ -16,8 +16,9 @@ for properties that have a live pool.
 - New `orders.getMarketQuote({ propertyId, direction, quantity, maxSlippageBps? })`: the route
   (`book`, `pmm`, `split`) and totals of a market order placed now. It creates nothing.
 - `orders.create({ orderType: 'market' })` accepts optional `limitTotal` (dollars). Pass
-  `boundTotal` from the market quote. The API answers `409 slippage_exceeded` and starts nothing
-  when the route at order time is worse.
+  `slippageBound` from a market quote requested with the same `maxSlippageBps`. The API answers
+  `409 slippage_exceeded` and starts nothing when the route at order time is worse. `boundTotal`
+  has no pool slippage in it: as `limitTotal` it refuses the order after any pool price move.
 - `MarketOrder` and `SwapStatus` include `quoteSettlementStatus`:
   `not_applicable | pending | settled | held`.
 - `amm.executeSwap()` is deprecated. Use market orders. A USDC account on a pool that quotes
