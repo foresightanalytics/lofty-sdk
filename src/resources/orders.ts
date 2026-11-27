@@ -4,6 +4,8 @@ import { MIN_ORDER_QUANTITY, ORDER_STEP, REFERENCE_WINDOW_CHOICES_DAYS } from '.
 import type {
   CreateOrderParams,
   CreateOrderResponse,
+  GetMarketQuoteParams,
+  GetMarketQuoteResponse,
   GetOrderResponse,
   CancelOrderParams,
   CancelOrderResponse,
@@ -104,6 +106,13 @@ export class OrdersResource {
         throw new LoftyError(400, { code: 'invalid_market_fields',
           message: 'Market orders use quantity and maxSlippageBps. Omit price, expiry, trigger fields, gift and rent.' });
       }
+      if (params.limitTotal !== undefined && !(typeof params.limitTotal === 'number' && Number.isFinite(params.limitTotal) && params.limitTotal > 0)) {
+        throw new LoftyError(400, { code: 'invalid_field',
+          message: 'limitTotal must be a positive number of dollars.', field: 'limitTotal' });
+      }
+    } else if ((params as { limitTotal?: unknown }).limitTotal !== undefined) {
+      throw new LoftyError(400, { code: 'invalid_field',
+        message: 'limitTotal applies to market orders only.', field: 'limitTotal' });
     } else if (isTriggerOrder) {
       if (orderType !== 'trailing_stop' && !(Number(params.triggerPrice) > 0)) {
         throw new LoftyError(400, {
@@ -183,13 +192,56 @@ export class OrdersResource {
         useGift: params.useGift,
         useRent: params.useRent,
         orderType: params.orderType,
-        ...(params.orderType === 'market' ? { maxSlippageBps: params.maxSlippageBps } : {}),
+        ...(params.orderType === 'market' ? { maxSlippageBps: params.maxSlippageBps, limitTotal: params.limitTotal } : {}),
         triggerPrice: params.triggerPrice,
         triggerLimitPrice: params.triggerLimitPrice,
         trailPercent: params.trailPercent,
         referenceWindowDays: params.referenceWindowDays,
       },
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+    });
+  }
+
+  /**
+   * Quote a market order without placing it: the route (`book`, `pmm` or `split`) and the total
+   * that `orders.create({ orderType: 'market' })` would get now. It reserves nothing.
+   *
+   * Request the quote with `maxSlippageBps` and pass its `slippageBound` as `limitTotal` on
+   * `orders.create()`: the order is then refused with `409 slippage_exceeded` when the route at
+   * order time is worse than the quote plus your slippage allowance. `boundTotal` has no pool
+   * slippage in it. As `limitTotal` it refuses the order after any pool price move.
+   *
+   * Quotes have their own rate limit, lower than other reads. Quote when you are ready to trade.
+   *
+   * @throws {LoftyError} `409 insufficient_liquidity` (the market cannot fill the quantity),
+   * `409 trading_disabled`, `503 quote_unavailable` (try again), or `400` for an invalid field.
+   *
+   * @example
+   * const quote = await lofty.orders.getMarketQuote({ propertyId: 'PROPERTY_ID', direction: 'buy', quantity: 2, maxSlippageBps: 100 });
+   * console.log(quote.route, quote.quotedTotal);
+   * await lofty.orders.create({
+   *   propertyId: 'PROPERTY_ID', direction: 'buy', quantity: 2,
+   *   orderType: 'market', maxSlippageBps: 100, limitTotal: quote.slippageBound,
+   * });
+   */
+  async getMarketQuote(params: GetMarketQuoteParams): Promise<GetMarketQuoteResponse> {
+    if (typeof params?.propertyId !== 'string' || !params.propertyId) {
+      throw new LoftyError(400, { code: 'missing_field', message: 'propertyId is required.', field: 'propertyId' });
+    }
+    if (params.direction !== 'buy' && params.direction !== 'sell') {
+      throw new LoftyError(400, { code: 'invalid_field', message: 'direction must be "buy" or "sell".', field: 'direction' });
+    }
+    const quantity = Number(params.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new LoftyError(400, { code: 'invalid_field', message: 'quantity must be a number greater than 0.', field: 'quantity' });
+    }
+    const bps = params.maxSlippageBps;
+    if (bps !== undefined && (typeof bps !== 'number' || !Number.isInteger(bps) || bps < 0 || bps >= 10000)) {
+      throw new LoftyError(400, { code: 'invalid_slippage',
+        message: 'maxSlippageBps must be an integer from 0 to 9999 (100 = 1%).', field: 'maxSlippageBps' });
+    }
+    return this.client._request<GetMarketQuoteResponse>('GET', '/public/v1/orders/market-quote', {
+      params: { propertyId: params.propertyId, direction: params.direction, quantity, maxSlippageBps: bps },
     });
   }
 

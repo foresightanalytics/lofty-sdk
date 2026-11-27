@@ -417,7 +417,34 @@ const { marketOrders } = await lofty.orders.list({ all: true, includeMarket: tru
 
 Market orders compare executable order-book prices and compatible V2 PMM quotes after fees.
 They may use either venue or split the quantity. Legacy accounts use USDC; migrated accounts
-use USDL (`LUSDC` in API values). The API never converts your account's settlement asset.
+use USDL (`LUSDC` in API values). Your account's settlement asset does not change. Most pools
+quote USDL: when a USDC account trades one, the pool part converts USDC↔USDL 1:1 as part of the
+trade. This is not an account migration. The conversion has limits; when it cannot run, the
+route uses the order book only. `order.quoteSettlementStatus` reports it: `not_applicable`,
+`pending`, `settled`, or `held` (the conversion of a sell waits for review).
+
+Quote first, then place the order with the quote as a limit:
+
+```typescript
+const quote = await lofty.orders.getMarketQuote({
+  propertyId: 'PROPERTY_ID', direction: 'sell', quantity: 0.1, maxSlippageBps: 100,
+});
+console.log(quote.route, quote.quotedTotal, quote.slippageBound); // 'book' | 'pmm' | 'split'
+
+await lofty.orders.create({
+  propertyId: 'PROPERTY_ID', direction: 'sell', quantity: 0.1,
+  orderType: 'market', maxSlippageBps: 100,
+  limitTotal: quote.slippageBound, // optional: refuse the order if the route is now worse than this
+});
+```
+
+`slippageBound` is the quoted total plus your `maxSlippageBps` allowance. `boundTotal` has no pool
+slippage in it: as `limitTotal` it refuses the order after any pool price move.
+
+`getMarketQuote()` reserves nothing and creates no order. With `limitTotal`, the API finds the
+route again at order time and answers `409 slippage_exceeded` when it is worse than the limit
+(a buy would pay more, a sell would receive less). Quotes have their own rate limit, lower than
+other reads.
 
 For each split candidate, the server quotes the actual pool remainder instead of scaling the
 full-order average. Route search is capped at 32 simulations, four concurrent quotes, and four
@@ -443,7 +470,8 @@ Parent market orders use `MKT_...` IDs. `orders.list({ ..., includeMarket: true 
 
 **Upgrade:** SDK 0.9.0 requires the matching backend release. Existing priced market calls must
 switch to explicit slippage and omit price. Limit order calls keep their existing behavior.
-`amm.executeSwap()` remains a separate API and does not gain this router.
+`amm.executeSwap()` remains a separate API and does not gain this router. It is deprecated
+since 0.12.0: use market orders.
 
 #### `.cancel(params, idempotencyKey?)`
 
@@ -665,6 +693,17 @@ venue served each response — branch on the response fields (`source`, `routedT
 | `.getQuote()` | priced on the pool contract; `source: 'amm'` | priced from the live order book; `source: 'orderbook'` |
 | `.executeSwap()` | executes on the pool; returns `{ batchId }` | placed on the order book as a limit order; returns `{ routedTo: 'orderbook', orderId }` |
 | `.listPools()` / `.getPool()` | pool state | throws `LoftyError` `409 amm_trading_paused` |
+
+**The pause applies only to earlier-generation pools.** A property with a current pool
+(`pmmVersion: 'v2'`) is served in both columns: `.listPools()`, `.getPool()` and `.getQuote()`
+answer for it, for USDC accounts and USDL accounts. A v2 pool that is inactive, spun down or
+replaced is `404 pool_not_found`.
+
+Most v2 pools quote USDL (`pool.assets.quote`). `settlementCurrency` in the response is the
+asset of your account. A USDC account trades a USDL pool with a **market order**
+(`orders.getMarketQuote()` + `orders.create({ orderType: 'market' })`), where the quote converts
+1:1 at execution. `.executeSwap()` answers `409 use_market_order` for that case and is
+deprecated.
 
 **0.10.0 type migration.** `AmmQuote` and `ExecuteSwapResponse` are now discriminated
 unions matching both backend response branches. Narrow quotes with
@@ -949,11 +988,19 @@ Check `error.code` on `LoftyError` for these:
 | `amm_trading_paused` | 409 | AMM pool venue is temporarily unavailable — use the order-book methods (`properties.getOrderBook`, `properties.getTrades`, `amm.getQuote`, `orders.create`) |
 | `invalid_field` | 400 | Invalid input; `amm.getQuote` requires a positive, finite `usdcAmount` and identifies it in `error.field` |
 | `payout_payee_unavailable` | 400 | A bank withdrawal named a `payoutPayee` this account can't use; pick one from `listWithdrawals().destinations.payoutPayees` |
-| `quote_unavailable` | 409 | An AMM dollar quote has no usable reference price or no positive quote within the requested amount; try a smaller amount or enter `tokenAmount` |
+| `quote_unavailable` | 409 / 503 | `409`: the pool cannot price this amount (no usable reference price, no positive quote, or not enough inventory) — try a smaller amount or enter `tokenAmount`. `503`: the market route could not be verified now — try again |
+| `pool_buy_disabled` / `pool_sell_disabled` | 409 | That side of the pool is turned off right now |
+| `use_market_order` | 409 | `amm.executeSwap()` on a pool that quotes USDL from a USDC account — use `orders.getMarketQuote()` and `orders.create({ orderType: 'market' })` |
+| `slippage_exceeded` | 400 / 409 | `409`: the route at order time is worse than `limitTotal`. `400`: the route cannot keep `maxSlippageBps`, or a swap is past its `minUsdcAmount` |
+| `insufficient_liquidity` | 409 | The order book and the pool together cannot fill the market order quantity |
+| `account_migration_in_progress` / `settlement_paused` | 409 | The account cannot start new trades right now; retry later |
+| `pool_unavailable` | 503 | The pool refused the trade before it started; nothing executed and the same idempotency key can be used again |
 | `insufficient_book_liquidity` / `no_book_liquidity` | 409 | The order book can't cover the requested size; the message says how much can fill |
 | `order_in_progress` | 409 | Another order for this property is mid-flight; retry shortly |
-| `order_rejected` | 400 | Order failed validation; the message has the reason |
-| `trading_disabled` | 400 | This specific property is not tradable |
+| `order_rejected` | 400 / 409 | Order failed validation; the message has the reason. `409` when the pool refused a market order before it started |
+| `settlement_changed` | 409 | The settlement state of the account changed between the route and the order; request a new quote |
+| `no_wallet` | 400 | The account has no Lofty wallet; market orders and swaps trade from it |
+| `trading_disabled` | 400 / 409 / 403 | `409` on `orders.getMarketQuote()`, market `orders.create()` and v2 `amm.getQuote()`, `400` on `amm.executeSwap()`: this specific property is not tradable. `403` (thrown as `LoftyTradingDisabledError`): this API key does not have trading enabled. Check `statusCode`, not only `code` |
 
 ### Rate limits
 
@@ -962,11 +1009,12 @@ Per API key, fixed one-minute window:
 | Operation | Default limit |
 |-----------|--------------|
 | Read (GET) | 300 / minute |
+| Quote (`amm.getQuote()`, `orders.getMarketQuote()`) | 60 / minute |
 | Write (POST / DELETE) | 30 / minute |
 
-Writes are **additionally** capped at **60 / minute per account** across all of your
-keys, so extra keys can't multiply your write throughput. Need more? Contact
-support to raise your key's override.
+Writes and quotes are **additionally** capped at **60 / minute per account** across all of
+your keys, so extra keys can't multiply your throughput. Need more reads or writes? Contact
+support to raise your key's override. The quote limit has no override.
 
 Rate limit headers are returned on every response:
 
@@ -974,9 +1022,9 @@ Rate limit headers are returned on every response:
 - `X-RateLimit-Remaining` — requests remaining
 - `X-RateLimit-Reset` — Unix timestamp when the window resets
 
-On `429`, the SDK automatically retries honoring `Retry-After` (writes retry on
-`429` only — never on `5xx`, since a write's outcome after a server error is
-unknown).
+On `429` the SDK throws `LoftyRateLimitError` with `retryAfter` (seconds) and `resetAt`.
+It does not retry for you. Wait `retryAfter` seconds, then send the request again. Never
+retry a write after a `5xx`: its outcome is unknown.
 
 ---
 
