@@ -997,8 +997,10 @@ Check `error.code` on `LoftyError` for these:
 | `pool_unavailable` | 503 | The pool refused the trade before it started; nothing executed and the same idempotency key can be used again |
 | `insufficient_book_liquidity` / `no_book_liquidity` | 409 | The order book can't cover the requested size; the message says how much can fill |
 | `order_in_progress` | 409 | Another order for this property is mid-flight; retry shortly |
-| `order_rejected` | 400 | Order failed validation; the message has the reason |
-| `trading_disabled` | 400 | This specific property is not tradable |
+| `order_rejected` | 400 / 409 | Order failed validation; the message has the reason. `409` when the pool refused a market order before it started |
+| `settlement_changed` | 409 | The settlement state of the account changed between the route and the order; request a new quote |
+| `no_wallet` | 400 | The account has no Lofty wallet; market orders and swaps trade from it |
+| `trading_disabled` | 400 / 409 / 403 | `409` on `orders.getMarketQuote()`, market `orders.create()` and v2 `amm.getQuote()`, `400` on `amm.executeSwap()`: this specific property is not tradable. `403` (thrown as `LoftyTradingDisabledError`): this API key does not have trading enabled. Check `statusCode`, not only `code` |
 
 ### Rate limits
 
@@ -1007,11 +1009,12 @@ Per API key, fixed one-minute window:
 | Operation | Default limit |
 |-----------|--------------|
 | Read (GET) | 300 / minute |
+| Quote (`amm.getQuote()`, `orders.getMarketQuote()`) | 60 / minute |
 | Write (POST / DELETE) | 30 / minute |
 
-Writes are **additionally** capped at **60 / minute per account** across all of your
-keys, so extra keys can't multiply your write throughput. Need more? Contact
-support to raise your key's override.
+Writes and quotes are **additionally** capped at **60 / minute per account** across all of
+your keys, so extra keys can't multiply your throughput. Need more reads or writes? Contact
+support to raise your key's override. The quote limit has no override.
 
 Rate limit headers are returned on every response:
 
@@ -1019,9 +1022,9 @@ Rate limit headers are returned on every response:
 - `X-RateLimit-Remaining` — requests remaining
 - `X-RateLimit-Reset` — Unix timestamp when the window resets
 
-On `429`, the SDK automatically retries honoring `Retry-After` (writes retry on
-`429` only — never on `5xx`, since a write's outcome after a server error is
-unknown).
+On `429` the SDK throws `LoftyRateLimitError` with `retryAfter` (seconds) and `resetAt`.
+It does not retry for you. Wait `retryAfter` seconds, then send the request again. Never
+retry a write after a `5xx`: its outcome is unknown.
 
 ---
 

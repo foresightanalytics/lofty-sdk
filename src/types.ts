@@ -464,7 +464,11 @@ export interface Order {
   referenceWindowDays?: number;
 }
 
-/** Normalized lifecycle for a pool-executed swap. */
+/**
+ * Normalized lifecycle for a pool-executed swap.
+ * `settled` and `failed` are final. The executor can try one swap up to three times; between
+ * those attempts the state stays `pending`.
+ */
 export type SwapState = 'pending' | 'settled' | 'failed';
 
 export interface SwapStatus {

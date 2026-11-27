@@ -42,8 +42,13 @@ for properties that have a live pool.
   fees (`quote.netProceeds`). A floor based on `quote.usdcAmount` is refused.
 - `amm.getQuote()` and `orders.getMarketQuote()` share a lower rate limit than other reads.
 - A market order or swap that the pool refuses before it starts now gets a `4xx` (or
-  `503 pool_unavailable`) and a final `cancelled` state. Before, it could stay in
-  `execution_unknown`. You can retry it with the same idempotency key.
+  `503 pool_unavailable`). Nothing started, and you can retry it with the same idempotency
+  key. A market order that was already saved ends in the final state `cancelled`; before, it
+  could stay in `execution_unknown`. A refused swap has no `batchId` and no status.
+- A swap state `failed` and a market order state `cancelled` are final. The executor can try
+  one pool trade up to three times; between those attempts the state stays `pending` /
+  `execution_pending`, so a failure that you read is safe to act on.
+- A market order with no Lofty wallet on the account gets `400 no_wallet`.
 
 ## 0.11.0
 

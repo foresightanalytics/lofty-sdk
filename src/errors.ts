@@ -15,6 +15,18 @@ export type LoftyErrorCode =
   | 'order_locked'
   | 'conflict'
   | 'payout_payee_unavailable'
+  | 'amm_trading_paused'
+  | 'pool_not_found'
+  | 'pool_buy_disabled'
+  | 'pool_sell_disabled'
+  | 'pool_unavailable'
+  | 'use_market_order'
+  | 'slippage_exceeded'
+  | 'insufficient_liquidity'
+  | 'no_wallet'
+  | 'account_migration_in_progress'
+  | 'settlement_paused'
+  | 'settlement_changed'
   | 'internal_error'
   | (string & {});
 
